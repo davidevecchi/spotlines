@@ -1,0 +1,9 @@
+.venv/
+.idea/
+old/
+__pycache__/
+*.pyc
+*.pyo
+*.zip
+/*.html
+.claude/

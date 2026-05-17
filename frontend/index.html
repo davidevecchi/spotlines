@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spotlines</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+    /* ── Toolbar ── */
+    #toolbar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 12px; background: #fff; border-bottom: 1px solid #dde3ec;
+      flex-wrap: wrap; flex-shrink: 0; font-size: 13px;
+    }
+    #toolbar label { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+    #toolbar input[type=number] {
+      width: 60px; padding: 4px 6px;
+      border: 1px solid #c5cdd9; border-radius: 4px; font-size: 13px;
+    }
+    #toolbar select {
+      padding: 4px 6px; border: 1px solid #c5cdd9; border-radius: 4px; font-size: 13px;
+    }
+    #searchBtn {
+      padding: 5px 18px; background: #2563eb; color: #fff;
+      border: none; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: 500;
+    }
+    #searchBtn:hover:not(:disabled) { background: #1d4ed8; }
+    #searchBtn:disabled { background: #94a3b8; cursor: not-allowed; }
+    #status { margin-left: auto; color: #64748b; font-size: 12px; }
+
+    /* ── Progress bar ── */
+    #progress-wrap {
+      position: absolute; top: 0; left: 0; right: 0; height: 4px;
+      background: transparent; overflow: hidden; z-index: 10000; pointer-events: none;
+    }
+    #progress-bar {
+      height: 100%; width: 0%; background: #2563eb;
+      transition: width 0.3s ease, opacity 0.4s ease;
+      opacity: 0;
+    }
+
+    /* ── Map ── */
+    #map { flex: 1; }
+
+    /* ── Legend ── */
+    #legend {
+      display: none; position: absolute; bottom: 36px; right: 10px; z-index: 1000;
+      background: rgba(255,255,255,.92); border: 1px solid #cbd5e1;
+      border-radius: 6px; padding: 9px 13px; font-size: 12px; min-width: 180px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.1);
+    }
+    #legend b { font-size: 12px; }
+    #legend-bar { display: block; width: 100%; height: 11px; border-radius: 3px; margin: 5px 0 2px; }
+    #legend-labels { display: flex; justify-content: space-between; color: #64748b; }
+    .legend-water {
+      display: flex; align-items: center; gap: 6px; margin-top: 7px; color: #475569;
+    }
+    .dash-sample {
+      width: 28px; height: 0; border-top: 3px dashed #4a9eff; display: inline-block;
+    }
+
+    /* ── Tooltip ── */
+    .leaflet-tooltip.sl-tip { padding: 6px 8px; background: #1e293b; border: none; border-radius: 5px; box-shadow: 0 2px 8px rgba(0,0,0,.35); white-space: normal; max-width: 240px; }
+    .leaflet-tooltip.sl-tip::before { border-top-color: #1e293b; }
+    .tip-dist { color: #f1f5f9; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+    /* ── Popup ── */
+    .leaflet-popup-content { font-size: 13px; line-height: 1.55; }
+    .sl-popup { min-width: 250px; max-width: 320px; }
+    .sl-popup .dist { font-size: 15px; font-weight: 600; margin-bottom: 5px; }
+    .sl-popup .sub { color: #475569; margin-bottom: 4px; font-size: 12px; }
+    .sl-popup .elev-row { color: #334155; font-size: 12px; margin-bottom: 3px; }
+    .water-tag {
+      display: inline-block; background: #eff6ff; color: #1d4ed8;
+      border: 1px solid #bfdbfe; border-radius: 3px;
+      padding: 1px 7px; font-size: 11px; font-weight: 600; margin-right: 5px;
+    }
+    .anchor-card {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 5px;
+      padding: 7px 9px; margin-top: 7px; font-size: 12px;
+    }
+    .anchor-card .ac-title { font-weight: 600; font-size: 12px; margin-bottom: 2px; }
+    .anchor-card .ac-row { color: #475569; }
+    .anchor-card a { color: #2563eb; text-decoration: none; font-size: 11px; }
+    .anchor-card a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <label>Min <input type="number" id="minM" value="15" min="1" max="4000" step="1"> m</label>
+  <label>Max <input type="number" id="maxM" value="50" min="1" max="4000" step="1"> m</label>
+  <label>Water
+    <select id="water">
+      <option value="any">Any</option>
+      <option value="only">Water crossings only</option>
+      <option value="exclude">Exclude water</option>
+    </select>
+  </label>
+  <label>Max slope <input type="number" id="maxSlope" value="10" min="0" max="90" step="0.5"> °</label>
+  <label>Clearance <input type="number" id="clearanceM" value="1" min="0" max="50" step="0.5"> m</label>
+  <button id="searchBtn" onclick="doSearch()">Search</button>
+  <span id="status">Draw a rectangle on the map, then click Search</span>
+</div>
+
+<div id="progress-wrap"><div id="progress-bar"></div></div>
+<div id="map"></div>
+
+<div id="legend">
+  <b>Distance (m)</b>
+  <canvas id="legend-bar" height="11"></canvas>
+  <div id="legend-labels">
+    <span id="leg-min"></span><span id="leg-max"></span>
+  </div>
+  <div class="legend-water">
+    <span class="dash-sample"></span> Water crossing
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<script>
+// ── Plasma colormap ──────────────────────────────────────────────────────────
+const PLASMA = [
+  [0.00, [13,   8,  135]],
+  [0.25, [126,  3,  168]],
+  [0.50, [204, 71,  120]],
+  [0.75, [248, 148,  65]],
+  [1.00, [240, 249,  33]],
+];
+
+function plasmaColor(t) {
+  t = Math.max(0, Math.min(1, t));
+  let i = 0;
+  while (i < PLASMA.length - 2 && t >= PLASMA[i + 1][0]) i++;
+  const [t0, c0] = PLASMA[i];
+  const [t1, c1] = PLASMA[Math.min(i + 1, PLASMA.length - 1)];
+  const f = t1 > t0 ? (t - t0) / (t1 - t0) : 0;
+  const ch = v => Math.round(v).toString(16).padStart(2, '0');
+  return '#' + [0, 1, 2].map(k => ch(c0[k] + f * (c1[k] - c0[k]))).join('');
+}
+
+// ── Map setup ────────────────────────────────────────────────────────────────
+const TRENTO = [46.0667, 11.1167];
+const map = L.map('map', { center: TRENTO, zoom: 14 });
+
+const layers = {
+  'CartoDB': L.tileLayer(
+    'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    { attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a> contributors © <a href="https://carto.com/">CARTO</a>', maxZoom: 19 }
+  ),
+  'OSM': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a> contributors', maxZoom: 19,
+  }),
+  'Satellite': L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { attribution: 'Tiles © Esri', maxZoom: 19 }
+  ),
+  'Topo': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://opentopomap.org">OpenTopoMap</a>', maxZoom: 17,
+  }),
+};
+layers['CartoDB'].addTo(map);
+L.control.layers(layers).addTo(map);
+
+// Geolocate on load; fall back to Trento silently
+if (navigator.geolocation) {
+  navigator.geolocation.getCurrentPosition(
+    pos => map.setView([pos.coords.latitude, pos.coords.longitude], 14),
+    () => {},
+    { timeout: 6000 }
+  );
+}
+
+// ── Locate button ────────────────────────────────────────────────────────────
+const LocateControl = L.Control.extend({
+  options: { position: 'topleft' },
+  onAdd() {
+    const btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control leaflet-control-locate');
+    btn.title = 'Go to my location';
+    btn.innerHTML = '⊕';
+    btn.style.cssText = 'width:30px;height:30px;font-size:18px;line-height:28px;cursor:pointer;background:#fff;border:none;';
+    L.DomEvent.on(btn, 'click', L.DomEvent.stopPropagation)
+              .on(btn, 'click', L.DomEvent.preventDefault)
+              .on(btn, 'click', () => {
+                if (!navigator.geolocation) return;
+                btn.style.opacity = '0.5';
+                navigator.geolocation.getCurrentPosition(
+                  pos => { map.setView([pos.coords.latitude, pos.coords.longitude], 15); btn.style.opacity = '1'; },
+                  ()  => { btn.style.opacity = '1'; },
+                  { timeout: 8000 }
+                );
+              });
+    return btn;
+  },
+});
+new LocateControl().addTo(map);
+
+// ── Draw control ─────────────────────────────────────────────────────────────
+const drawnItems = new L.FeatureGroup().addTo(map);
+map.addControl(new L.Control.Draw({
+  draw: { rectangle: true, polyline: false, polygon: false, circle: false, circlemarker: false, marker: false },
+  edit: { featureGroup: drawnItems },
+}));
+
+let currentBbox = null;
+const resultsLayer = L.layerGroup().addTo(map);
+
+map.on(L.Draw.Event.CREATED, e => {
+  drawnItems.clearLayers();
+  drawnItems.addLayer(e.layer);
+  const b = e.layer.getBounds();
+  currentBbox = { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() };
+  setStatus('Rectangle drawn — click Search');
+});
+
+map.on(L.Draw.Event.EDITED, e => {
+  e.layers.eachLayer(l => {
+    const b = l.getBounds();
+    currentBbox = { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() };
+  });
+});
+
+map.on(L.Draw.Event.DELETED, () => { currentBbox = null; setStatus('Draw a rectangle on the map, then click Search'); });
+
+// ── Search ───────────────────────────────────────────────────────────────────
+async function doSearch() {
+  if (!currentBbox) { alert('Draw a rectangle on the map first.'); return; }
+
+  const minM       = parseFloat(document.getElementById('minM').value);
+  const maxM       = parseFloat(document.getElementById('maxM').value);
+  const water      = document.getElementById('water').value;
+  const maxSlope   = parseFloat(document.getElementById('maxSlope').value);
+  const clearanceM = parseFloat(document.getElementById('clearanceM').value) || 0;
+
+  if (isNaN(minM) || isNaN(maxM) || minM >= maxM) {
+    alert('Min distance must be a number less than max distance.'); return;
+  }
+
+  const { south, west, north, east } = currentBbox;
+  if (Math.abs(north - south) > 0.1 || Math.abs(east - west) > 0.1) {
+    alert('Bounding box too large — max 0.1° per side (~11 km).'); return;
+  }
+
+  setLoading(true);
+  resultsLayer.clearLayers();
+
+  try {
+    const qs = new URLSearchParams({ south, west, north, east, min_m: minM, max_m: maxM, water, max_slope: maxSlope, clearance_m: clearanceM });
+    const resp = await fetch('/spots?' + qs);
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      throw new Error(body.detail || `HTTP ${resp.status}`);
+    }
+    const geojson = await resp.json();
+    const { realMin, realMax } = renderResults(geojson, minM, maxM);
+    const n = geojson.features.length;
+    setStatus(`${n} pair${n !== 1 ? 's' : ''} found`);
+    drawLegend(realMin, realMax);
+  } catch (err) {
+    setStatus('Error: ' + err.message);
+    alert('Search failed: ' + err.message);
+  } finally {
+    setLoading(false);
+  }
+}
+
+// ── Rendering ────────────────────────────────────────────────────────────────
+function renderResults(geojson, minM, maxM) {
+  resultsLayer.clearLayers();
+  const dists = geojson.features.map(f => f.properties.distance_m);
+  const realMin = dists.length ? Math.min(...dists) : minM;
+  const realMax = dists.length ? Math.max(...dists) : maxM;
+  const layer = L.geoJSON(geojson, {
+    style: f => {
+      const t = realMax > realMin ? (f.properties.distance_m - realMin) / (realMax - realMin) : 0.5;
+      return {
+        color: plasmaColor(t),
+        weight: 3,
+        opacity: 0.9,
+        dashArray: f.properties.over_water ? '9 7' : null,
+      };
+    },
+    onEachFeature: (f, lyr) => {
+      lyr.bindTooltip(buildTooltip(f.properties), {
+        direction: 'top', sticky: true,
+        className: 'sl-tip', opacity: 1,
+      });
+      lyr.bindPopup(() => buildPopup(f.properties), { maxWidth: 340, minWidth: 260 });
+    },
+  });
+  resultsLayer.addLayer(layer);
+  return { realMin, realMax };
+}
+
+// ── Popup HTML ───────────────────────────────────────────────────────────────
+function kindLabel(k) {
+  return k.replace(/_/g, ' ');
+}
+
+function anchorCard(label, id, kind, tags) {
+  tags = tags || {};
+  const rows = [];
+  const add = (k, ...keys) => {
+    for (const key of keys) if (tags[key]) { rows.push(`<div class="ac-row">${k}: ${tags[key]}</div>`); return; }
+  };
+  add('Species', 'species', 'species:en');
+  add('Name', 'name');
+  add('Circumference', 'circumference');
+  add('Height', 'height');
+  const osmLink = id > 0
+    ? `<a href="https://www.openstreetmap.org/node/${id}" target="_blank">View on OSM ↗</a>`
+    : '';
+  return `<div class="anchor-card">
+    <div class="ac-title">${label}: ${kindLabel(kind)}</div>
+    ${rows.join('')}
+    ${osmLink}
+  </div>`;
+}
+
+const TERRAIN_COLORS = {
+  forest:    '#166534',
+  grassland: '#4d7c0f',
+  farmland:  '#854d0e',
+  water:     '#0369a1',
+  wetland:   '#0e7490',
+  rock:      '#57534e',
+  sand:      '#b45309',
+  shrub:     '#3f6212',
+  urban:     '#374151',
+  snow:      '#94a3b8',
+  orchard:   '#3d6b21',
+  tundra:    '#4a7c59',
+  unknown:   '#1e293b',
+};
+
+const TERRAIN_LABEL = {
+  forest: 'Forest', grassland: 'Grassland', farmland: 'Farmland',
+  water: 'Water', wetland: 'Wetland', rock: 'Rock', sand: 'Sand',
+  shrub: 'Shrub', urban: 'Urban', snow: 'Snow/Ice',
+  orchard: 'Orchard', tundra: 'Tundra', unknown: '',
+};
+
+// Compact elevation profile for hover tooltips (matches old/frontend/map.js style)
+function elevProfileSvgCompact(elevs, elevA, elevB) {
+  if (!elevs || !elevs.length) return '';
+  const valid = elevs.filter(e => e != null);
+  if (!valid.length) return '';
+  const W = 220, H = 64, PX = 3, PY = 4;
+  const n = elevs.length;
+  const allVals = [...valid];
+  if (elevA != null) allVals.push(elevA);
+  if (elevB != null) allVals.push(elevB);
+  const lo = Math.min(...allVals) - 1;
+  const hi = Math.max(...allVals) + 1;
+  const sx = i => (PX + (i / (n - 1)) * (W - 2 * PX)).toFixed(1);
+  const sy = e => e != null ? (H - PY - ((e - lo) / (hi - lo)) * (H - 2 * PY)).toFixed(1) : null;
+  const validPts = elevs.map((e, i) => e != null ? `${sx(i)},${sy(e)}` : null).filter(Boolean);
+  const firstIdx = elevs.findIndex(e => e != null);
+  const lastIdx  = elevs.length - 1 - [...elevs].reverse().findIndex(e => e != null);
+  const poly = `${sx(firstIdx)},${H} ${validPts.join(' ')} ${sx(lastIdx)},${H}`;
+  let slackLine = '';
+  if (elevA != null && elevB != null) {
+    slackLine =
+      `<line x1="${sx(0)}" y1="${sy(elevA)}" x2="${sx(n-1)}" y2="${sy(elevB)}" stroke="#f48849" stroke-width="2" stroke-dasharray="5 3"/>` +
+      `<circle cx="${sx(0)}" cy="${sy(elevA)}" r="3" fill="#f48849"/>` +
+      `<circle cx="${sx(n-1)}" cy="${sy(elevB)}" r="3" fill="#f48849"/>`;
+  }
+  return (
+    `<svg width="${W}" height="${H}" style="display:block;margin-top:5px;border-radius:3px;background:#0d0d18">` +
+    `<polygon points="${poly}" fill="#1e4a30" opacity="0.95"/>` +
+    `<polyline points="${validPts.join(' ')}" fill="none" stroke="#4db870" stroke-width="1.5"/>` +
+    slackLine +
+    `</svg>`
+  );
+}
+
+function elevSvg(terrain, elevA, elevB, terrainTypes, W, H) {
+  if (!terrain) return '';
+  const valid = terrain.filter(e => e != null);
+  if (!valid.length) return '';
+  W = W || 268; H = H || 105;
+  const PL = 34, PR = 4, PT = 5, PB = 38;  // extra bottom room for terrain strip + labels
+  const iW = W - PL - PR, iH = H - PT - PB;
+  const n = terrain.length;
+
+  // Include anchor elevations in range so slackline is always within bounds
+  const allVals = [...valid];
+  if (elevA != null) allVals.push(elevA);
+  if (elevB != null) allVals.push(elevB);
+  const mn = Math.min(...allVals) - 1;
+  const mx = Math.max(...allVals) + 1;
+  const rng = mx - mn;
+
+  const px = (i) => (PL + (i / (n - 1)) * iW).toFixed(1);
+  const py = (e) => (PT + iH - ((e - mn) / rng) * iH).toFixed(1);
+
+  // Terrain-type background strips (inside chart area)
+  let strips = '';
+  if (terrainTypes && terrainTypes.length === n) {
+    for (let i = 0; i < n - 1; i++) {
+      const x1 = PL + (i / (n - 1)) * iW;
+      const x2 = PL + ((i + 1) / (n - 1)) * iW;
+      const col = TERRAIN_COLORS[terrainTypes[i]] || TERRAIN_COLORS.unknown;
+      strips += `<rect x="${x1.toFixed(1)}" y="${PT}" width="${(x2 - x1).toFixed(1)}" height="${iH}" fill="${col}" opacity="0.45"/>`;
+    }
+  }
+
+  // Terrain profile — skip null samples to avoid NaN coordinates
+  const profilePts = terrain
+    .map((e, i) => e != null ? `${px(i)},${py(e)}` : null)
+    .filter(Boolean);
+  const firstIdx = terrain.findIndex(e => e != null);
+  const lastIdx  = terrain.length - 1 - [...terrain].reverse().findIndex(e => e != null);
+  const fillPoly = `${px(firstIdx)},${PT + iH} ${profilePts.join(' ')} ${px(lastIdx)},${PT + iH}`;
+
+  // Slackline: straight line between elev_a and elev_b
+  let slackLine = '';
+  if (elevA != null && elevB != null) {
+    const yA = PT + iH - ((elevA - mn) / rng) * iH;
+    const yB = PT + iH - ((elevB - mn) / rng) * iH;
+    slackLine = `<line x1="${PL}" y1="${yA.toFixed(1)}" x2="${W - PR}" y2="${yB.toFixed(1)}" stroke="#fb923c" stroke-width="2" stroke-dasharray="5 3"/>` +
+      `<circle cx="${PL}" cy="${yA.toFixed(1)}" r="3" fill="#fb923c"/>` +
+      `<circle cx="${W - PR}" cy="${yB.toFixed(1)}" r="3" fill="#fb923c"/>`;
+  }
+
+  // Terrain strip + labels below X axis
+  const xAxisY = PT + iH;
+  const stripY = xAxisY + 2;
+  const stripH = 5;
+  const labelY = stripY + stripH + 9;  // baseline for terrain type text
+  let terrainBand = '';
+  let terrainLabels = '';
+  if (terrainTypes && terrainTypes.length === n) {
+    // Coloured strip below x-axis
+    for (let i = 0; i < n - 1; i++) {
+      const x1 = PL + (i / (n - 1)) * iW;
+      const x2 = PL + ((i + 1) / (n - 1)) * iW;
+      const col = TERRAIN_COLORS[terrainTypes[i]] || TERRAIN_COLORS.unknown;
+      terrainBand += `<rect x="${x1.toFixed(1)}" y="${stripY}" width="${(x2 - x1).toFixed(1)}" height="${stripH}" fill="${col}" opacity="0.9"/>`;
+    }
+    // Label each unique terrain type at the centre of its first run
+    let i = 0;
+    while (i < n) {
+      const t = terrainTypes[i];
+      let j = i + 1;
+      while (j < n && terrainTypes[j] === t) j++;
+      if (t && t !== 'unknown') {
+        const cx = PL + (((i + j - 1) / 2) / (n - 1)) * iW;
+        const col = TERRAIN_COLORS[t] || TERRAIN_COLORS.unknown;
+        const lbl = TERRAIN_LABEL[t] || t;
+        terrainLabels += `<text x="${cx.toFixed(1)}" y="${labelY}" font-size="7.5" fill="${col}" text-anchor="middle" font-family="system-ui,sans-serif">${lbl}</text>`;
+      }
+      i = j;
+    }
+  }
+
+  // A / B endpoint labels
+  const abY = H - 2;
+
+  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:4px 0">
+    <rect width="${W}" height="${H}" fill="#0d0d18" rx="3"/>
+    ${strips}
+    <polygon points="${fillPoly}" fill="#1e4a30" opacity="0.95"/>
+    <polyline points="${profilePts.join(' ')}" fill="none" stroke="#4db870" stroke-width="1.5" stroke-linejoin="round"/>
+    ${slackLine}
+    <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${xAxisY}" stroke="#334155" stroke-width="1"/>
+    <line x1="${PL}" y1="${xAxisY}" x2="${W - PR}" y2="${xAxisY}" stroke="#334155" stroke-width="1"/>
+    <text x="${PL - 3}" y="${PT + 6}" font-size="9" fill="#64748b" text-anchor="end">${Math.round(mx - 1)}m</text>
+    <text x="${PL - 3}" y="${xAxisY}" font-size="9" fill="#64748b" text-anchor="end">${Math.round(mn + 1)}m</text>
+    ${terrainBand}
+    ${terrainLabels}
+    <text x="${PL + 2}" y="${abY}" font-size="9" fill="#64748b">A</text>
+    <text x="${W - PR - 10}" y="${abY}" font-size="9" fill="#64748b">B</text>
+  </svg>`;
+}
+
+function buildTooltip(p) {
+  let elevHtml = '';
+  const svg = elevProfileSvgCompact(p.terrain_elevs, p.elev_a, p.elev_b);
+  if (svg) {
+    // A is always westernmost so positive rise means uphill toward east
+    const rise = (p.elev_b != null && p.elev_a != null) ? (p.elev_b - p.elev_a) : 0;
+    const dir = rise > 0.5 ? '↗' : rise < -0.5 ? '↘' : '→';
+    const sdeg = p.slope_deg != null ? p.slope_deg + '°' : '?';
+    const spct = p.slope_pct != null ? Math.abs(p.slope_pct).toFixed(1) + '%' : '?';
+    const eA = p.elev_a != null ? p.elev_a + ' m' : '?';
+    const eB = p.elev_b != null ? p.elev_b + ' m' : '?';
+    elevHtml =
+      `<div style="font-size:11px;color:#94a3b8;margin:3px 0 1px">${dir} <b style="color:#e2e8f0">${sdeg}</b> (${spct}) · ${eA} → ${eB}</div>` +
+      svg;
+  }
+  return `<div class="tip-dist">${p.distance_m} m</div>${elevHtml}`;
+}
+
+function buildPopup(p) {
+  const water = p.over_water ? '<span class="water-tag">Water crossing</span>' : '';
+  const elevRow = (p.elev_a != null || p.elev_b != null)
+    ? `<div class="elev-row">Elev: ${p.elev_a != null ? p.elev_a + ' m' : '?'} → ${p.elev_b != null ? p.elev_b + ' m' : '?'} &nbsp;·&nbsp; Slope: ${p.slope_pct != null ? Math.abs(p.slope_pct).toFixed(1) + '%' : '?'} (${p.slope_deg != null ? p.slope_deg + '°' : '?'})</div>`
+    : '';
+
+  // Unique terrain types along the line, in order of first appearance
+  let terrainRow = '';
+  if (p.terrain_types && p.terrain_types.length) {
+    const seen = [], unique = [];
+    for (const t of p.terrain_types) {
+      if (t && t !== 'unknown' && !seen.includes(t)) { seen.push(t); unique.push(t); }
+    }
+    if (unique.length) {
+      const swatches = unique.map(t =>
+        `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:6px">
+           <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${TERRAIN_COLORS[t] || '#64748b'}"></span>
+           <span>${TERRAIN_LABEL[t] || t}</span>
+         </span>`
+      ).join('');
+      terrainRow = `<div class="elev-row" style="margin-top:2px">Terrain: ${swatches}</div>`;
+    }
+  }
+
+  return `<div class="sl-popup">
+    <div class="dist">${water}${p.distance_m} m</div>
+    <div class="sub">${kindLabel(p.anchor_a_kind)} → ${kindLabel(p.anchor_b_kind)}</div>
+    ${elevRow}
+    ${terrainRow}
+    ${elevSvg(p.terrain_elevs, p.elev_a, p.elev_b, p.terrain_types)}
+    ${anchorCard('Anchor A', p.anchor_a_id, p.anchor_a_kind, p.anchor_a_tags)}
+    ${anchorCard('Anchor B', p.anchor_b_id, p.anchor_b_kind, p.anchor_b_tags)}
+  </div>`;
+}
+
+// ── Legend ───────────────────────────────────────────────────────────────────
+function drawLegend(minM, maxM) {
+  const el = document.getElementById('legend');
+  el.style.display = 'block';
+  document.getElementById('leg-min').textContent = minM + ' m';
+  document.getElementById('leg-max').textContent = maxM + ' m';
+
+  const canvas = document.getElementById('legend-bar');
+  const ctx = canvas.getContext('2d');
+  const w = canvas.offsetWidth || 160;
+  canvas.width = w;
+  for (let x = 0; x < w; x++) {
+    ctx.fillStyle = plasmaColor(x / (w - 1));
+    ctx.fillRect(x, 0, 1, canvas.height);
+  }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function setStatus(msg) { document.getElementById('status').textContent = msg; }
+
+let _progressTimer = null;
+function progressStart() {
+  const bar = document.getElementById('progress-bar');
+  bar.style.transition = 'none';
+  bar.style.width = '0%';
+  bar.style.opacity = '1';
+  // Ease toward 85% over ~25 s (typical slow query), never reaching it
+  requestAnimationFrame(() => {
+    bar.style.transition = 'width 25s cubic-bezier(0.1, 0.05, 0.3, 1), opacity 0.4s ease';
+    bar.style.width = '85%';
+  });
+}
+function progressDone() {
+  const bar = document.getElementById('progress-bar');
+  bar.style.transition = 'width 0.2s ease, opacity 0.5s ease 0.25s';
+  bar.style.width = '100%';
+  setTimeout(() => { bar.style.opacity = '0'; }, 50);
+}
+
+function setLoading(on) {
+  document.getElementById('searchBtn').disabled = on;
+  if (on) progressStart(); else progressDone();
+}
+</script>
+</body>
+</html>
