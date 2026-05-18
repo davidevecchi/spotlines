@@ -1,5 +1,7 @@
 fastapi
 uvicorn[standard]
 requests
-shapely
+shapely>=2.0
 numpy
+rasterio
+Pillow

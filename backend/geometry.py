@@ -16,7 +16,7 @@ EARTH_RADIUS = 6_371_000  # metres
 LANDUSE_ALLOWED = frozenset({
     "education", "fairground", "allotments", "farmland", "farmyard",
     "logging", "meadow", "orchard", "basin", "grass", "greenfield",
-    "recreation_ground", "winter_sports",
+    "recreation_ground", "winter_sports", "forest",
 })
 LEISURE_ALLOWED = frozenset({"nature_reserve", "park", "garden", "summer_camp", "pitch", "dog_park"})
 TOURISM_ALLOWED = frozenset({"camp_pitch", "camp_site", "caravan_site", "picnic_site"})

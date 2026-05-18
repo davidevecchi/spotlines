@@ -143,28 +143,44 @@ function plasmaColor(t) {
   return '#' + [0, 1, 2].map(k => ch(c0[k] + f * (c1[k] - c0[k]))).join('');
 }
 
+// Slope heatmap tiles are computed server-side (GLO-30 / TINItaly) and cached on disk.
+
 // ── Map setup ────────────────────────────────────────────────────────────────
 const TRENTO = [46.0667, 11.1167];
 const map = L.map('map', { center: TRENTO, zoom: 14 });
 
-const layers = {
-  'CartoDB': L.tileLayer(
-    'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    { attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a> contributors © <a href="https://carto.com/">CARTO</a>', maxZoom: 19 }
+map.createPane('labelsPane');
+map.getPane('labelsPane').style.zIndex = 450;
+map.getPane('labelsPane').style.pointerEvents = 'none';
+
+const baseLayers = {
+  'Satellite names': L.layerGroup([
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      { attribution: 'Tiles &copy; Esri', maxZoom: 19 }),
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',
+      { attribution: '&copy; CARTO', maxZoom: 19, pane: 'labelsPane' }),
+  ]),
+  'Satellite raw': L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { attribution: 'Tiles &copy; Esri', maxZoom: 19 }
   ),
   'OSM': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a> contributors', maxZoom: 19,
+    attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> contributors', maxZoom: 19,
   }),
-  'Satellite': L.tileLayer(
-    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    { attribution: 'Tiles © Esri', maxZoom: 19 }
-  ),
   'Topo': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://opentopomap.org">OpenTopoMap</a>', maxZoom: 17,
+    attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a>', maxZoom: 17,
   }),
 };
-layers['CartoDB'].addTo(map);
-L.control.layers(layers).addTo(map);
+
+const overlays = {
+  'Slope heatmap': L.tileLayer('/slope/{z}/{x}/{y}.png', {
+    minZoom: 10, maxNativeZoom: 14, maxZoom: 19,
+    attribution: 'Slope &copy; Copernicus GLO-30 / TINItaly INGV',
+  }),
+};
+
+baseLayers['OSM'].addTo(map);
+L.control.layers(baseLayers, overlays).addTo(map);
 
 // Geolocate on load; fall back to Trento silently
 if (navigator.geolocation) {

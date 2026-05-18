@@ -7,14 +7,29 @@ from functools import partial
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
 from .analysis import enumerate_pairs
+from .dem import get_slope_tile
 from .elevation import fetch_elevations
 from .geometry import build_spatial_indices, build_terrain_index
 from .overpass import fetch_osm, parse_osm
 
 app = FastAPI(title="Spotlines")
+
+
+@app.get("/slope/{z}/{x}/{y}.png", response_class=Response)
+async def slope_tile(z: int, x: int, y: int):
+    if not (0 <= z <= 18 and 0 <= x < 2 ** z and 0 <= y < 2 ** z):
+        raise HTTPException(400, "Invalid tile coordinates")
+    loop = asyncio.get_running_loop()
+    png = await loop.run_in_executor(None, partial(get_slope_tile, z, x, y))
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 @app.get("/spots")
