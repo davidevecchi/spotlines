@@ -15,8 +15,9 @@ crossings.
 4. Valid pairs are returned as a GeoJSON layer, coloured by distance, with per-pair popups showing anchor details and a
    terrain elevation profile.
 
-There is no database. All geodata comes live from OpenStreetMap (via the Overpass API) and elevations from Open-Meteo.
-Results are cached in memory for a few minutes to avoid hammering the external APIs on repeat queries.
+Geodata comes live from OpenStreetMap (via the Overpass API). Elevation data comes from a local DEM cache
+(TINItaly 10 m for Italy, Copernicus GLO-30 30 m elsewhere) — no external elevation API is used.
+OSM results are cached in memory for 5 minutes; DEM tiles are cached permanently on disk.
 
 ---
 
@@ -25,13 +26,20 @@ Results are cached in memory for a few minutes to avoid hammering the external A
 ```
 Browser (map UI)
     │  GET /spots?south=…&north=…&west=…&east=…&min_m=…&max_m=…&water=…&max_slope=…
+    │  GET /slope/{z}/{x}/{y}.png
     ▼
 HTTP API (Python / FastAPI)
     ├─ Fetch OSM data for bbox        → anchor points + obstacle geometries
     ├─ Build spatial index            → fast intersection lookups
     ├─ Enumerate anchor pairs         → distance filter + line-of-sight check
-    ├─ Fetch terrain elevations       → slope calculation
-    └─ Apply user filters             → GeoJSON FeatureCollection response
+    ├─ Sample elevations from DEM     → slope calculation
+    ├─ Apply user filters             → GeoJSON FeatureCollection response
+    └─ Serve slope tiles              → plasma-coloured slope heatmap PNGs
+
+DEM tile cache  (disk)
+    ├─ dem/tinitaly/N46_E011.tif      10 m, WGS-84, Italy only
+    ├─ dem/glo30/N46_E011.tif         30 m, WGS-84, global fallback
+    └─ slope/{z}/{x}/{y}.png          derived, safe to wipe
 ```
 
 ---
@@ -51,7 +59,7 @@ HTTP API (Python / FastAPI)
 | `water`     | string | `any`   | any/only/exclude | Water-crossing filter                 |
 | `max_slope` | float  | 10      | 0–90             | Maximum allowed slope (degrees)       |
 
-Bounding boxes larger than roughly 10 km on either side are rejected.
+Bounding boxes larger than 0.1° on either side are rejected with HTTP 400.
 
 **Response:** GeoJSON `FeatureCollection`. Each feature is a `LineString` between the two anchors with properties:
 
@@ -61,13 +69,8 @@ Bounding boxes larger than roughly 10 km on either side are rejected.
   "over_water": false,
   "anchor_a_id": 123456789,
   "anchor_b_id": 987654321,
-  "anchor_a_tags": {
-    "natural": "tree",
-    "species": "Quercus robur"
-  },
-  "anchor_b_tags": {
-    "natural": "tree"
-  },
+  "anchor_a_tags": { "natural": "tree", "species": "Quercus robur" },
+  "anchor_b_tags": { "natural": "tree" },
   "anchor_a_kind": "tree",
   "anchor_b_kind": "tree",
   "elev_a": 145.2,
@@ -81,9 +84,20 @@ Bounding boxes larger than roughly 10 km on either side are rejected.
 
 `anchor_*_kind` is one of: `tree`, `guard_rail`, `tree_row`, `forest_edge`, `geological`.
 
-`terrain_types` is a 10-element array of terrain/feature labels at evenly-spaced sample points along the line. Possible values: `forest`, `grassland`, `farmland`, `water`, `wetland`, `rock`, `sand`, `shrub`, `urban`, `snow`, `unknown`.
+`terrain_types` is a 10-element array of terrain labels at evenly-spaced sample points along the line.
+Possible values: `forest`, `grassland`, `farmland`, `water`, `wetland`, `rock`, `sand`, `shrub`, `urban`, `snow`, `unknown`.
 
 Anchor A is always the westernmost anchor (tie-break: northernmost). Anchor B is always easternmost.
+
+---
+
+### `GET /slope/{z}/{x}/{y}.png`
+
+Returns a 256×256 RGBA PNG tile showing terrain slope as a plasma heatmap (blue = flat, yellow = steep ≥ 45°).
+Flat areas (< 1°) are transparent so the base map shows through.
+
+Tiles are computed from the DEM cache on first request and cached to disk permanently.
+The Leaflet overlay uses `maxNativeZoom: 14` — higher zoom levels scale up the cached tile.
 
 ---
 
@@ -105,34 +119,32 @@ A single Overpass QL query fetches all relevant features inside the bounding box
 
 > Currently only `tree` anchors are active. The others are architecturally supported and can be enabled in `backend/overpass.py`.
 
-Forest-edge anchors represent slacklining at the margin of a forest. They use the real OSM node IDs from the forest polygon boundary. The line-of-sight and obstacle checks naturally exclude unusable spots.
-
 **Obstacle sources** (what blocks a slackline):
 
-| OSM tag            | Exceptions (OK to cross)                                                | Effect                                      |
-|--------------------|-------------------------------------------------------------------------|---------------------------------------------|
-| `aeroway`          | —                                                                       | blocks                                      |
-| `amenity`          | —                                                                       | blocks                                      |
-| `barrier`          | `kerb`                                                                  | blocks                                      |
-| `building`         | —                                                                       | blocks                                      |
-| `craft`            | —                                                                       | blocks                                      |
-| `emergency`        | —                                                                       | blocks                                      |
-| `healthcare`       | —                                                                       | blocks                                      |
-| `highway`          | —                                                                       | blocks                                      |
-| `historic`         | —                                                                       | blocks                                      |
-| `landuse`          | education, fairground, allotments, farmland, farmyard, logging, meadow, orchard, basin, grass, greenfield, recreation_ground, winter_sports | blocks all others (including `forest`) |
-| `leisure`          | nature_reserve, park, garden, summer_camp, pitch, dog_park              | blocks all others                           |
-| `man_made`         | cutline, clearcut, dyke, embankment                                     | blocks all others                           |
-| `military`         | —                                                                       | blocks                                      |
-| `office`           | —                                                                       | blocks                                      |
-| `power`            | line, minor_line, cable                                                 | blocks                                      |
-| `public_transport` | —                                                                       | blocks                                      |
-| `railway`          | abandoned, disused                                                      | blocks all others                           |
-| `shop`             | —                                                                       | blocks                                      |
-| `telecom`          | line                                                                    | blocks                                      |
-| `tourism`          | camp_pitch, camp_site, caravan_site, picnic_site                        | blocks all others                           |
-| `wastewater`       | —                                                                       | blocks                                      |
-| `waterway`         | dock, boatyard, water_point, fuel                                       | blocks those values only                    |
+| OSM tag            | Exceptions (OK to cross)                                                                                                    | Effect            |
+|--------------------|-----------------------------------------------------------------------------------------------------------------------------|-------------------|
+| `aeroway`          | —                                                                                                                           | blocks            |
+| `amenity`          | —                                                                                                                           | blocks            |
+| `barrier`          | `kerb`                                                                                                                      | blocks            |
+| `building`         | —                                                                                                                           | blocks            |
+| `craft`            | —                                                                                                                           | blocks            |
+| `emergency`        | —                                                                                                                           | blocks            |
+| `healthcare`       | —                                                                                                                           | blocks            |
+| `highway`          | —                                                                                                                           | blocks            |
+| `historic`         | —                                                                                                                           | blocks            |
+| `landuse`          | education, fairground, allotments, farmland, farmyard, logging, meadow, orchard, basin, grass, greenfield, recreation_ground, winter_sports, **forest** | blocks all others |
+| `leisure`          | nature_reserve, park, garden, summer_camp, pitch, dog_park                                                                  | blocks all others |
+| `man_made`         | cutline, clearcut, dyke, embankment                                                                                         | blocks all others |
+| `military`         | —                                                                                                                           | blocks            |
+| `office`           | —                                                                                                                           | blocks            |
+| `power`            | line, minor_line, cable                                                                                                     | blocks            |
+| `public_transport` | —                                                                                                                           | blocks            |
+| `railway`          | abandoned, disused                                                                                                          | blocks all others |
+| `shop`             | —                                                                                                                           | blocks            |
+| `telecom`          | line                                                                                                                        | blocks            |
+| `tourism`          | camp_pitch, camp_site, caravan_site, picnic_site                                                                            | blocks all others |
+| `wastewater`       | —                                                                                                                           | blocks            |
+| `waterway`         | dock, boatyard, water_point, fuel                                                                                           | blocks those only |
 
 Water bodies (`waterway` values other than the four above, plus `natural=water` areas) are **always crossable** — they do not reject a pair but set `over_water = true` on it.
 
@@ -142,15 +154,15 @@ Overpass results are cached by bbox for ~5 minutes to avoid redundant requests.
 
 ### Step 2 — Spatial index
 
-All obstacle geometries are loaded into a spatial index (e.g. an R-tree / STRtree) so that intersection tests during
+All obstacle geometries are loaded into a spatial index (Shapely `STRtree`) so that intersection tests during
 pair enumeration are O(log n) rather than O(n).
 
-Three separate indices are useful:
+Three separate indices:
 
 - **Blocking obstacles** — roads, buildings, barriers, etc.
 - **Water** — for `over_water` annotation only.
-- **Anchor buffers** — a circle around each anchor (radius derived from trunk circumference if known, with a minimum
-  of ~0.5 m). Used to detect other anchors that a line passes through.
+- **Anchor buffers** — a circle around each anchor (radius derived from trunk circumference if known, minimum 0.5 m).
+  Used to detect other anchors that a line passes through.
 
 ---
 
@@ -166,27 +178,35 @@ Every combination of two anchors is tested:
     - Reject if the line passes through the buffer of any *other* anchor (i.e. there is a third tree in the way).
     - If the line intersects water, mark `over_water = true` (don't reject).
 
-Pairs that survive both tests are kept.
+3. **Anchor ordering** — after passing LOS, assign A = westernmost anchor (tie-break: northernmost), B = easternmost.
 
 ---
 
 ### Step 4 — Elevation and slope
 
-For each surviving pair, sample ~10 evenly-spaced points along the line and fetch their elevations from the Open-Meteo
-elevation API (`https://api.open-meteo.com/v1/elevation`, free, no key required).
+For each surviving pair, interpolate 10 evenly-spaced sample points along the line and look up their elevations
+from the local DEM cache (`backend/dem.py`).
 
-Deduplicate sample points across all pairs (round to ~4 decimal places, ~11 m grid) before batching requests (max 100
-points per call). Respect the API's rate limit (~600 req/min) with a short sleep between batches.
+**DEM sources** (selected automatically per 1°×1° tile):
+
+| Source | Resolution | Coverage | Cache location |
+|--------|-----------|----------|----------------|
+| TINItaly (INGV) | 10 m | Italy | `dem/tinitaly/` |
+| Copernicus GLO-30 (AWS COG) | 30 m | Global | `dem/glo30/` |
+
+Tiles are downloaded on first access and stored permanently as deflate-compressed WGS-84 GeoTIFFs at
+`/media/pi/WD/.cache/spotfinder/`. TINItaly is preferred for any 1°×1° cell that overlaps Italy; GLO-30 is the
+fallback everywhere else.
+
+Deduplicate sample points across all pairs (round to 5 decimal places, ~1 m grid) before querying the DEM.
 
 Compute per pair:
-
-- `elev_a`, `elev_b` — endpoint elevations
-- `terrain_elevs` — full sample array
+- `elev_a`, `elev_b` — endpoint elevations (m, 1 decimal)
+- `terrain_elevs` — full 10-element sample array
 - `slope_pct` = `|elev_b − elev_a| / distance_m × 100`
 - `slope_deg` = `atan(|elev_b − elev_a| / distance_m)` in degrees
 
-If elevation fetching fails for any reason, leave these fields null and let the pair through (the slope filter simply
-won't apply).
+If elevation data is unavailable, these fields are null and the slope filter does not apply to that pair.
 
 ---
 
@@ -204,7 +224,8 @@ Return surviving pairs as a GeoJSON `FeatureCollection`.
 
 A single-page map application with:
 
-- A Leaflet map with multiple baselayers (CartoDB Voyager default, OSM, topo, satellite)
+- A Leaflet map with four baselayers: **OSM** (default), Satellite names, Satellite raw, Topo
+- A **Slope heatmap** optional overlay (plasma-coloured, served by `/slope/{z}/{x}/{y}.png`)
 - A rectangle-draw tool to define the search area
 - A toolbar: min/max distance, water filter, max slope, search button
 - Result layer: lines coloured by distance (plasma colourmap), dashed if over water, with hover tooltips (distance) and
@@ -215,9 +236,15 @@ A single-page map application with:
 
 ## External APIs used
 
-| API                  | URL                                       | Auth | Purpose                    |
-|----------------------|-------------------------------------------|------|----------------------------|
-| Overpass             | `https://overpass-api.de/api/interpreter` | none | OpenStreetMap geodata      |
-| Open-Meteo elevation | `https://api.open-meteo.com/v1/elevation` | none | Terrain elevation profiles |
+| API      | URL                                       | Auth | Purpose               |
+|----------|-------------------------------------------|------|-----------------------|
+| Overpass | `https://overpass-api.de/api/interpreter` | none | OpenStreetMap geodata |
 
-Both are free and require no registration.
+Elevation data is served from locally cached DEM files; no external elevation API is used at runtime.
+
+DEM tiles are downloaded once on first access:
+
+| Source | URL | Auth |
+|--------|-----|------|
+| Copernicus GLO-30 | `https://copernicus-dem-30m.s3.eu-central-1.amazonaws.com/` | none |
+| TINItaly | `https://tinitaly.pi.ingv.it/TINItaly_1_1/wcs` | none (CC BY 4.0) |

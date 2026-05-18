@@ -8,7 +8,7 @@ You are building **Spotlines** from scratch. This file is your full specificatio
 
 A web app that finds valid slackline spots in any geographic area. The user draws a bounding box on a map; the backend returns every pair of anchor points (trees, guard rails, geological features, forest edges) that are within a chosen distance range and have a clear line of sight between them, annotated with elevation data.
 
-**Stack:** Python backend (FastAPI), plain HTML/JS frontend (Leaflet). No database — all data comes from free external APIs.
+**Stack:** Python backend (FastAPI), plain HTML/JS frontend (Leaflet). No database — geodata from Overpass API, elevation from a local DEM cache.
 
 ---
 
@@ -20,12 +20,13 @@ frontend/         Static files served by FastAPI
 requirements.txt
 ```
 
-Suggested backend module split:
-- **main** — FastAPI app, `/spots` endpoint, GeoJSON serialisation, post-fetch filters
+Backend modules:
+- **main** — FastAPI app, `/spots` and `/slope/{z}/{x}/{y}.png` endpoints, GeoJSON serialisation, post-fetch filters
 - **overpass** — Overpass QL query, OSM response parsing, anchor and obstacle models
 - **geometry** — haversine distance, spatial index construction, line-of-sight check
 - **analysis** — pair enumeration loop, Pair model
-- **elevation** — Open-Meteo batched fetch, slope calculation
+- **elevation** — elevation sampling from DEM cache, slope calculation
+- **dem** — DEM tile download and disk cache (TINItaly / GLO-30), slope tile rendering
 
 ---
 
@@ -77,11 +78,18 @@ Anchor A is always the westernmost anchor (tie-break: northernmost). Anchor B is
 
 ---
 
+### `GET /slope/{z}/{x}/{y}.png`
+
+Returns a 256×256 RGBA PNG slope heatmap tile (plasma colourmap: blue = flat, yellow ≥ 45°). Flat areas (< 1°)
+are transparent. Tiles are computed from the DEM cache and cached permanently to disk.
+
+---
+
 ## Pipeline — implement in this order
 
 ### 1. OSM data fetch (Overpass API)
 
-POST to `https://overpass-api.de/api/interpreter`. Use Overpass QL. A single query should fetch both anchors and obstacles.
+POST to `https://overpass-api.de/api/interpreter`. Use Overpass QL. A single query fetches both anchors and obstacles.
 
 **Overpass QL query to send** (substitute the actual bbox coordinates):
 
@@ -119,17 +127,9 @@ POST to `https://overpass-api.de/api/interpreter`. Use Overpass QL. A single que
 out body; >; out skel qt;
 ```
 
-Notes on query scope:
-- `route` relations reference ways already fetched by `highway`/`railway`; no separate query needed.
-- `highway` nodes (traffic lights, crossings) are excluded by using `way[highway]` — they add no useful geometry.
-- `power` and `telecom` are filtered to only the linear forms that actually cross airspace; area/point power features (substations, towers) are irrelevant.
-- Timeout is 60 s because the broader tag set fetches more data than the old query.
-
-**Cache results** keyed by bbox (round coordinates to 5 decimal places) with a 5-minute TTL. A plain dict with a stored timestamp is enough.
+**Cache results** keyed by bbox (round coordinates to 5 decimal places) with a 5-minute TTL.
 
 #### Parsing anchors
-
-Parse the JSON response into `Anchor` objects (id, lat, lon, tags dict, kind string).
 
 | OSM element | kind |
 |-------------|------|
@@ -139,11 +139,9 @@ Parse the JSON response into `Anchor` objects (id, lat, lon, tags dict, kind str
 | Every node in a `way` with `barrier=guard_rail` | `guard_rail` |
 | Forest-edge nodes (see below) | `forest_edge` |
 
-**Forest-edge anchor logic:** For each `landuse=forest` way or relation, collect every boundary node and register it directly as a `forest_edge` anchor using its real OSM node ID. No adjacency filtering — the line-of-sight and obstacle checks will exclude unusable spots.
+**Forest-edge anchor logic:** For each `landuse=forest` way or relation, collect every boundary node and register it as a `forest_edge` anchor using its real OSM node ID.
 
 #### Parsing obstacles
-
-Separate incoming OSM elements into obstacle categories. Use Shapely geometry objects. For each element, derive geometry from its node coordinates: open ways → LineString, closed ways and relations → Polygon, nodes → Point (with buffer).
 
 **Blocking — lines and polygons** (reject any pair whose line intersects these):
 
@@ -151,47 +149,43 @@ Separate incoming OSM elements into obstacle categories. Use Shapely geometry ob
 |---------|-------------------|----------|
 | `aeroway` | none | lines + polygons |
 | `amenity` | none | nodes → point buffer (~2 m); ways/relations → polygon |
-| `barrier` | `barrier=kerb` is OK (not an obstacle) | non-kerb ways → lines + polygons; non-kerb nodes → point buffer (~2 m) |
+| `barrier` | `barrier=kerb` is OK | non-kerb ways → lines + polygons; non-kerb nodes → point buffer (~2 m) |
 | `building` | none | polygons |
 | `craft` | none | polygons |
 | `emergency` | none | nodes → point buffer; ways → polygons |
 | `healthcare` | none | polygons |
 | `highway` | none | lines |
 | `historic` | none | polygons; nodes → point buffer |
-| `landuse` | education, fairground, allotments, farmland, farmyard, logging, meadow, orchard, basin, grass, greenfield, recreation_ground, winter_sports are NOT obstacles | all other values (including `forest`) → polygons |
+| `landuse` | education, fairground, allotments, farmland, farmyard, logging, meadow, orchard, basin, grass, greenfield, recreation_ground, winter_sports, **forest** are NOT obstacles | all other values → polygons |
 | `leisure` | nature_reserve, park, garden, summer_camp, pitch, dog_park are NOT obstacles | all other values → polygons |
-| `man_made` | allowed values (see below) are NOT obstacles | all other values → lines + polygons |
+| `man_made` | cutline, clearcut, dyke, embankment are NOT obstacles | all other values → lines + polygons |
 | `military` | none | polygons |
 | `office` | none | polygons |
-| `power` | only `power` ∈ {line, minor_line, cable} — towers, poles, substations are ignored | lines |
+| `power` | only `power` ∈ {line, minor_line, cable} | lines |
 | `public_transport` | none | nodes → point buffer; ways → polygons |
 | `railway` | `railway` ∈ {abandoned, disused} is OK | all other values → lines |
 | `shop` | none | nodes → point buffer; ways → polygons |
-| `telecom` | only `telecom=line` — other telecom tags are ignored | lines |
-| `tourism` | allowed values (see below) are NOT obstacles | all other values → polygons |
+| `telecom` | only `telecom=line` | lines |
+| `tourism` | camp_pitch, camp_site, caravan_site, picnic_site are NOT obstacles | all other values → polygons |
 | `wastewater` | none | polygons |
-| `waterway` | only `waterway` ∈ {dock, boatyard, water_point, fuel} — built structures that physically block | lines + polygons |
+| `waterway` | only `waterway` ∈ {dock, boatyard, water_point, fuel} block | lines + polygons |
 
-**Water — annotation only** (always crossable; do NOT reject the pair; set `over_water=True`):
-
-All waterways are crossable **except** the four built structures above that physically block. Specifically:
+**Water — annotation only** (crossable; set `over_water=True`):
 
 | Tag filter | Geometry |
 |------------|----------|
 | `waterway` where value ∉ {dock, boatyard, water_point, fuel} | LineString |
 | `natural=water` | Polygon |
 
-Water geometries do **not** block lines — they only mark pairs as `over_water=True`.
-
 ---
 
 ### 2. Spatial index
 
-Build three separate spatial indices (use Shapely's `STRtree`):
+Three separate `STRtree` indices:
 
 - **Blocking index** — all blocking lines, polygons, and point buffers.
 - **Water index** — water lines and water polygons.
-- **Anchor index** — a circular buffer around each anchor. Radius = `circumference_tag / (2π)` if available, else 0.5 m minimum. Store anchor IDs alongside so you can exclude the two endpoints when testing.
+- **Anchor index** — circular buffer per anchor. Radius = `circumference_tag / (2π)` if available, else 0.5 m minimum.
 
 ---
 
@@ -199,49 +193,69 @@ Build three separate spatial indices (use Shapely's `STRtree`):
 
 Iterate all N(N−1)/2 anchor combinations.
 
-**Distance check** — compute haversine great-circle distance. Earth radius: 6 371 000 m. Skip pair if outside `[min_m, max_m]`.
+**Distance check** — haversine great-circle distance (Earth radius 6 371 000 m). Skip if outside `[min_m, max_m]`.
 
 **Line-of-sight check:**
 
 1. Form a line segment between the two anchors.
-2. Shrink it ~0.3 m from each endpoint (convert metres to degrees using the mean latitude) to avoid the endpoints' own trunk buffers triggering false positives.
-3. Test against the blocking index. Any intersection → reject pair.
-4. Test against the anchor index, excluding the two endpoint anchors. Any intersection → reject pair (a third anchor is in the way).
-5. Test against the water index. Any intersection → set `over_water = True` (do not reject).
+2. Shrink ~0.3 m from each endpoint to avoid false positives from trunk buffers.
+3. Reject if intersects blocking index.
+4. Reject if intersects anchor index excluding the two endpoints.
+5. Intersects water index → set `over_water = True` (do not reject).
 
-Surviving pairs carry: both anchors, distance, `over_water` flag.
+**Anchor ordering** — after passing LOS: A = westernmost (tie-break: northernmost), B = easternmost.
 
 ---
 
 ### 4. Elevation and slope
 
-Fetch terrain elevations from the Open-Meteo API:
+Sample 10 evenly-spaced points per pair and look up elevations from `backend/dem.get_elevation_at_points()`.
+
+**DEM cache** (`/media/pi/WD/.cache/spotfinder/`):
 
 ```
-GET https://api.open-meteo.com/v1/elevation?latitude=…&longitude=…
+dem/tinitaly/{N46_E011}.tif    10 m, WGS-84, Italy only  (preferred)
+dem/glo30/{N46_E011}.tif       30 m, WGS-84, global      (fallback)
+slope/{z}/{x}/{y}.png          slope tiles, derived
 ```
 
-For each pair, interpolate 10 evenly-spaced sample points along the line. Collect all sample points across all pairs, deduplicate by rounding to 4 decimal places (~11 m grid), then send in batches of ≤ 100. Sleep ~150 ms between batches to stay within the free tier (~600 req/min).
+Tile selection: if the 1°×1° cell overlaps Italy (approx. 35.5–47.1 N, 6.6–18.8 E), try TINItaly first (WCS
+download, ~50–100 MB compressed). Otherwise use Copernicus GLO-30 (AWS S3 COG HTTP range read, ~10–20 MB).
+All tiles are stored as deflate-compressed WGS-84 GeoTIFFs and reused indefinitely.
 
-For each pair, look up the returned elevations by rounded coordinate and compute:
-- `elev_a`, `elev_b` (m, round to 1 decimal)
+Deduplicate sample points to 5 decimal places (~1 m) before querying.
+
+Compute per pair:
+- `elev_a`, `elev_b` (m, 1 decimal)
 - `terrain_elevs` — 10-element array
 - `slope_pct` = `|elev_b − elev_a| / distance_m × 100`
 - `slope_deg` = `degrees(atan(|elev_b − elev_a| / distance_m))`
 
-If elevation fetching fails for any reason, leave all elevation fields as `null` — the slope filter will not apply to those pairs.
+Null if elevation unavailable; slope filter does not apply to those pairs.
 
 ---
 
 ### 5. Post-fetch filters
 
-After pair enumeration and elevation:
-
-- `water=only` → keep only pairs where `over_water` is true
-- `water=exclude` → keep only pairs where `over_water` is false
-- `max_slope` → discard pairs where `slope_deg > max_slope` (null passes through)
+- `water=only` → keep only `over_water` pairs
+- `water=exclude` → keep only `over_water=false` pairs
+- `max_slope` → discard pairs where `slope_deg > max_slope` (null passes)
 
 Serialise surviving pairs to GeoJSON and return.
+
+---
+
+### 6. Slope tile endpoint
+
+`GET /slope/{z}/{x}/{y}.png`:
+
+1. Check disk cache (`slope/{z}/{x}/{y}.png`) → return if hit.
+2. Convert tile coords to WGS-84 bbox.
+3. Open the relevant 1°×1° DEM tile(s) from cache (downloading if needed).
+4. Read a 256×256 window via rasterio with bilinear resampling.
+5. Compute slope with `numpy.gradient` (divided by pixel size in metres).
+6. Apply plasma colourmap (0°→transparent blue, 45°+→yellow, alpha ramps from 0 at <1° to 200 at max).
+7. Save PNG to disk cache and return with `Cache-Control: immutable`.
 
 ---
 
@@ -249,7 +263,20 @@ Serialise surviving pairs to GeoJSON and return.
 
 A single HTML page with an embedded JS map. No framework, no build step.
 
-**Map:** Leaflet with baselayers: CartoDB Voyager (default), OSM, satellite, topo.
+**Map:** Leaflet with baselayers:
+
+| Layer | Tile source | Default |
+|-------|-------------|---------|
+| OSM | openstreetmap.org | ✓ |
+| Satellite names | Esri World Imagery + CARTO labels | |
+| Satellite raw | Esri World Imagery | |
+| Topo | opentopomap.org | |
+
+**Overlays:**
+
+| Overlay | Source | Notes |
+|---------|--------|-------|
+| Slope heatmap | `/slope/{z}/{x}/{y}.png` | plasma, `maxNativeZoom: 14` |
 
 **Controls (toolbar above map):**
 - Min distance input (metres, default 15)
@@ -259,21 +286,17 @@ A single HTML page with an embedded JS map. No framework, no build step.
 - Search button
 
 **Interaction:**
-1. User draws a rectangle on the map (use Leaflet.Draw, rectangle only).
+1. User draws a rectangle on the map (Leaflet.Draw, rectangle only).
 2. Clicking Search calls `GET /spots` with the rectangle bbox and current control values.
 3. Show a loading indicator while waiting.
 
 **Result rendering:**
-- Draw each pair as a `LineString` on the map.
-- Colour lines by distance using a plasma colourmap (map the `[min_m, max_m]` range to the gradient).
-- Draw water-crossing pairs dashed.
-- Show a sticky tooltip on hover with the distance.
-- Show a popup on click with:
-  - Distance in metres
-  - Water warning if applicable
-  - Elevation profile as an inline SVG graph
-  - One card per anchor: kind, species/name if known, circumference, height, link to OSM (`https://www.openstreetmap.org/node/{id}`)
-- Show a legend mapping the distance colour range.
+- Draw each pair as a `LineString`.
+- Colour by distance using the plasma colourmap over `[min_m, max_m]`.
+- Dashed if `over_water`.
+- Hover tooltip: distance, elevation, slope direction arrow (↗ / → / ↘).
+- Click popup: distance, water warning, inline SVG elevation profile, one card per anchor (kind, species/name, circumference, height, OSM link).
+- Distance-range legend.
 
 **Serve the frontend from the FastAPI app** as static files at `/`.
 
@@ -290,11 +313,10 @@ A single HTML page with an embedded JS map. No framework, no build step.
 | Endpoint shrink | 0.3 m | avoid trunk-buffer false positives |
 | Min anchor buffer radius | 0.5 m | fallback when no circumference tag |
 | Point obstacle buffer radius | ~2 m | bench / barrier node footprint |
-| Forest-edge neighbour distance | ~5 m (0.00005°) | detect open-area adjacency |
 | Elevation sample points per pair | 10 | sufficient slope resolution |
-| Elevation deduplication precision | 4 decimal places | ~11 m grid |
-| Elevation batch size | 100 points | Open-Meteo limit |
-| Elevation inter-batch sleep | 150 ms | stay under 600 req/min |
+| Elevation deduplication precision | 5 decimal places | ~1 m grid (matches TINItaly 10 m) |
+| Slope tile max native zoom | 14 | ~2.4 km × 2.4 km per tile at 46 °N |
+| DEM cache root | `/media/pi/WD/.cache/spotfinder/` | permanent, large disk |
 | Earth radius (haversine) | 6 371 000 m | standard mean radius |
 
 ---
@@ -304,6 +326,9 @@ A single HTML page with an embedded JS map. No framework, no build step.
 - All coordinates are WGS-84. Shapely uses `(lon, lat)` order; haversine uses `(lat, lon)`. Be consistent and explicit everywhere.
 - The O(N²) pair loop is the performance bottleneck for large areas — keep it tight.
 - Build the spatial indices once per request, reuse across all pair checks.
-- Endpoint shrink must be converted from metres to degrees using the actual latitude of the line's midpoint (degrees per metre varies with latitude).
+- Endpoint shrink must be converted from metres to degrees using the actual latitude of the line's midpoint.
 - The Overpass cache key should use rounded coordinates so slightly different bbox requests hit the same cached result.
-- Elevation errors must be silently swallowed — the API can time out on large batches.
+- All cached DEM tiles are guaranteed WGS-84 (reprojected at download time by `_save_as_wgs84`). Never assume the raw WCS/COG CRS.
+- TINItaly has a self-signed TLS cert — use `verify=False` and suppress urllib warnings.
+- The first search in a new 1°×1° cell blocks while the DEM tile downloads (up to ~300 s for a large TINItaly tile). Subsequent requests are instant.
+- Slope PNG tiles are derived from DEM tiles and can be safely wiped; they will be recomputed on next request.
