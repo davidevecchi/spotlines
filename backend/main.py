@@ -1,35 +1,100 @@
-"""FastAPI application — /spots endpoint and static frontend serving."""
+"""FastAPI application — /spots and /slope/image endpoints, static frontend serving."""
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from functools import partial
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .analysis import enumerate_pairs
-from .dem import get_slope_tile
+from .dem import get_slope_image, get_slope_stats, get_contour_svg, get_elevation_image, get_elevation_stats
 from .elevation import fetch_elevations
-from .geometry import build_spatial_indices, build_terrain_index
+from .geometry import build_features_index, build_spatial_indices, build_terrain_index
 from .overpass import fetch_osm, parse_osm
 
 app = FastAPI(title="Spotlines")
 
 
-@app.get("/slope/{z}/{x}/{y}.png", response_class=Response)
-async def slope_tile(z: int, x: int, y: int):
-    if not (0 <= z <= 18 and 0 <= x < 2 ** z and 0 <= y < 2 ** z):
-        raise HTTPException(400, "Invalid tile coordinates")
+@app.get("/slope/stats")
+async def slope_stats(
+    south: float = Query(...),
+    west: float = Query(...),
+    north: float = Query(...),
+    east: float = Query(...),
+):
+    if abs(north - south) > 0.1 or abs(east - west) > 0.1:
+        raise HTTPException(400, "Bounding box exceeds 0.1° per side")
     loop = asyncio.get_running_loop()
-    png = await loop.run_in_executor(None, partial(get_slope_tile, z, x, y))
-    return Response(
-        content=png,
-        media_type="image/png",
-        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    min_deg, max_deg = await loop.run_in_executor(
+        None, partial(get_slope_stats, south, west, north, east)
     )
+    return {"min_deg": min_deg, "max_deg": max_deg}
+
+
+@app.get("/slope/contours")
+async def slope_contours(
+    south: float = Query(...),
+    west: float = Query(...),
+    north: float = Query(...),
+    east: float = Query(...),
+):
+    if abs(north - south) > 0.1 or abs(east - west) > 0.1:
+        raise HTTPException(400, "Bounding box exceeds 0.1° per side")
+    loop = asyncio.get_running_loop()
+    svg = await loop.run_in_executor(
+        None, partial(get_contour_svg, south, west, north, east)
+    )
+    return Response(content=svg, media_type="image/svg+xml",
+                    headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/slope/image")
+async def slope_image(
+    south: float = Query(...),
+    west: float = Query(...),
+    north: float = Query(...),
+    east: float = Query(...),
+):
+    if abs(north - south) > 0.1 or abs(east - west) > 0.1:
+        raise HTTPException(400, "Bounding box exceeds 0.1° per side")
+    loop = asyncio.get_running_loop()
+    png = await loop.run_in_executor(None, partial(get_slope_image, south, west, north, east))
+    return Response(content=png, media_type="image/png")
+
+
+@app.get("/elevation/image")
+async def elevation_image(
+    south: float = Query(...),
+    west: float = Query(...),
+    north: float = Query(...),
+    east: float = Query(...),
+):
+    if abs(north - south) > 0.1 or abs(east - west) > 0.1:
+        raise HTTPException(400, "Bounding box exceeds 0.1° per side")
+    loop = asyncio.get_running_loop()
+    png = await loop.run_in_executor(None, partial(get_elevation_image, south, west, north, east))
+    return Response(content=png, media_type="image/png")
+
+
+@app.get("/elevation/stats")
+async def elevation_stats_endpoint(
+    south: float = Query(...),
+    west: float = Query(...),
+    north: float = Query(...),
+    east: float = Query(...),
+):
+    if abs(north - south) > 0.1 or abs(east - west) > 0.1:
+        raise HTTPException(400, "Bounding box exceeds 0.1° per side")
+    loop = asyncio.get_running_loop()
+    min_m, max_m = await loop.run_in_executor(
+        None, partial(get_elevation_stats, south, west, north, east)
+    )
+    return {"min_m": min_m, "max_m": max_m}
 
 
 @app.get("/spots")
@@ -53,67 +118,101 @@ async def get_spots(
 
     loop = asyncio.get_running_loop()
 
-    t0 = time.perf_counter()
+    def evt(status: str, pct: int) -> str:
+        return "data: " + json.dumps({"status": status, "pct": pct}) + "\n\n"
 
-    try:
-        data = await loop.run_in_executor(None, partial(fetch_osm, south, west, north, east))
-    except RuntimeError as exc:
-        raise HTTPException(502, f"Overpass API error: {exc}") from exc
-    t1 = time.perf_counter()
+    async def generate():
+        t0 = time.perf_counter()
 
-    anchors, elements, nodes_by_id, ways_by_id = parse_osm(data)
-    t2 = time.perf_counter()
+        yield evt("Querying Overpass API…", 3)
+        try:
+            fetch_future = asyncio.ensure_future(
+                loop.run_in_executor(None, partial(fetch_osm, south, west, north, east))
+            )
+            t_fetch = time.perf_counter()
+            while not fetch_future.done():
+                await asyncio.sleep(1)
+                elapsed = time.perf_counter() - t_fetch
+                yield "data: " + json.dumps({"status": f"Querying Overpass API… ({elapsed:.0f}s)"}) + "\n\n"
+            data = fetch_future.result()
+        except RuntimeError as exc:
+            yield "data: " + json.dumps({"error": str(exc)}) + "\n\n"
+            return
+        t1 = time.perf_counter()
 
-    geom_cache: dict = {}
+        n_el = len(data.get("elements", []))
+        yield evt(f"Parsing {n_el} OSM elements…", 35)
+        anchors, elements, nodes_by_id, ways_by_id = parse_osm(data)
+        t2 = time.perf_counter()
 
-    (blocking_tree, blocking_geoms, blocking_anchor_ids,
-     water_tree, water_geoms,
-     anchor_tree, anchor_geoms, anchor_ids) = build_spatial_indices(
-        elements, nodes_by_id, ways_by_id, anchors, geom_cache,
+        yield evt(f"Building spatial indices ({len(anchors)} anchors)…", 45)
+        geom_cache: dict = {}
+        (blocking_tree, blocking_geoms, blocking_anchor_ids,
+         water_tree, water_geoms,
+         _anchor_tree, _anchor_geoms, _anchor_ids) = build_spatial_indices(
+            elements, nodes_by_id, ways_by_id, anchors, geom_cache,
+        )
+        t3 = time.perf_counter()
+
+        yield evt("Building terrain index…", 55)
+        terrain_tree, _terrain_geoms, terrain_labels = build_terrain_index(
+            elements, nodes_by_id, ways_by_id, geom_cache,
+        )
+        t4 = time.perf_counter()
+
+        yield evt("Building features index…", 60)
+        features_tree, features_data = build_features_index(
+            elements, nodes_by_id, ways_by_id, geom_cache,
+        )
+        t4b = time.perf_counter()
+
+        yield evt("Enumerating slackline pairs…", 63)
+        pairs = enumerate_pairs(
+            anchors, min_m, max_m,
+            blocking_tree, blocking_geoms, blocking_anchor_ids,
+            water_tree, water_geoms,
+            clearance_m=clearance_m,
+            terrain_tree=terrain_tree,
+            terrain_labels=terrain_labels,
+            features_tree=features_tree,
+            features_data=features_data,
+        )
+        t5 = time.perf_counter()
+
+        if pairs:
+            yield evt(f"Sampling elevation for {len(pairs)} pairs…", 75)
+            await loop.run_in_executor(None, partial(fetch_elevations, pairs))
+        t6 = time.perf_counter()
+
+        if water == "only":
+            pairs = [p for p in pairs if p.over_water]
+        elif water == "exclude":
+            pairs = [p for p in pairs if not p.over_water]
+        pairs = [p for p in pairs if p.slope_deg is None or p.slope_deg <= max_slope]
+
+        features = [_pair_to_feature(p) for p in pairs]
+        t7 = time.perf_counter()
+
+        print(
+            f"TIMING  anchors={len(anchors)}  elements={len(elements)}  "
+            f"pairs={len(features)} | "
+            f"osm={t1-t0:.2f}s  parse={t2-t1:.2f}s  spatial={t3-t2:.2f}s  "
+            f"terrain={t4-t3:.2f}s  features={t4b-t4:.2f}s  pairs={t5-t4b:.2f}s  "
+            f"elev={t6-t5:.2f}s  serial={t7-t6:.2f}s  TOTAL={t7-t0:.2f}s",
+            flush=True,
+        )
+
+        yield (
+            "data: "
+            + json.dumps({"result": {"type": "FeatureCollection", "features": features}, "pct": 100})
+            + "\n\n"
+        )
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-    t3 = time.perf_counter()
-
-    terrain_tree, _terrain_geoms, terrain_labels = build_terrain_index(
-        elements, nodes_by_id, ways_by_id, geom_cache,
-    )
-    t4 = time.perf_counter()
-
-    pairs = enumerate_pairs(
-        anchors, min_m, max_m,
-        blocking_tree, blocking_geoms, blocking_anchor_ids,
-        water_tree, water_geoms,
-        anchor_tree, anchor_geoms, anchor_ids,
-        clearance_m=clearance_m,
-        terrain_tree=terrain_tree,
-        terrain_labels=terrain_labels,
-    )
-    t5 = time.perf_counter()
-
-    if pairs:
-        await loop.run_in_executor(None, partial(fetch_elevations, pairs))
-    t6 = time.perf_counter()
-
-    # Post-fetch filters
-    if water == "only":
-        pairs = [p for p in pairs if p.over_water]
-    elif water == "exclude":
-        pairs = [p for p in pairs if not p.over_water]
-
-    pairs = [p for p in pairs if p.slope_deg is None or p.slope_deg <= max_slope]
-
-    features = [_pair_to_feature(p) for p in pairs]
-    t7 = time.perf_counter()
-
-    print(
-        f"TIMING  anchors={len(anchors)}  elements={len(elements)}  "
-        f"pairs={len(features)} | "
-        f"osm={t1-t0:.2f}s  parse={t2-t1:.2f}s  spatial={t3-t2:.2f}s  "
-        f"terrain={t4-t3:.2f}s  pairs={t5-t4:.2f}s  elev={t6-t5:.2f}s  "
-        f"serial={t7-t6:.2f}s  TOTAL={t7-t0:.2f}s",
-        flush=True,
-    )
-
-    return {"type": "FeatureCollection", "features": features}
 
 
 def _pair_to_feature(p) -> dict:
@@ -141,11 +240,13 @@ def _pair_to_feature(p) -> dict:
             "slope_deg": p.slope_deg,
             "terrain_elevs": p.terrain_elevs,
             "terrain_types": p.terrain_types,
+            "corridor_terrain": p.corridor_terrain,
+            "corridor_features": p.corridor_features,
         },
     }
 
 
 _FRONTEND = Path(__file__).parent.parent / "frontend"
 
-# Frontend must be mounted last so /spots is reachable
+# Frontend must be mounted last so /spots and /slope are reachable
 app.mount("/", StaticFiles(directory=str(_FRONTEND), html=True), name="frontend")

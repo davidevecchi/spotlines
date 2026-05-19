@@ -58,7 +58,7 @@ def _build_query(south: float, west: float, north: float, east: float) -> str:
     return f"""[out:json][timeout:60];
 (
   node[natural=tree]({b});
-  nwr[natural=water]({b});
+  nwr[natural~"^(wood|tree_row|water)$"]({b});
   nwr[aeroway]({b});
   nwr[amenity]({b});
   nwr[barrier]({b});

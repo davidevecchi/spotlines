@@ -6,183 +6,694 @@
   <title>Spotlines</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    body { overflow: hidden; font-family: system-ui, sans-serif; }
 
-    /* ── Toolbar ── */
-    #toolbar {
-      display: flex; align-items: center; gap: 10px;
-      padding: 7px 12px; background: #fff; border-bottom: 1px solid #dde3ec;
-      flex-wrap: wrap; flex-shrink: 0; font-size: 13px;
+    #map { position: fixed; inset: 0; z-index: 0; }
+
+    /* ── Island base ── */
+    .island {
+      background: rgba(250,246,240,0.93);
+      border: 1px solid rgba(180,140,90,0.22);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.14);
+      border-radius: 10px;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      color: #292524;
     }
-    #toolbar label { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
-    #toolbar input[type=number] {
-      width: 60px; padding: 4px 6px;
-      border: 1px solid #c5cdd9; border-radius: 4px; font-size: 13px;
+
+    /* ── Left column ── */
+    #left-col {
+      position: fixed; top: 10px; bottom: 10px; left: 10px;
+      width: 320px; display: flex; flex-direction: column; gap: 8px;
+      pointer-events: none; z-index: 1000;
     }
-    #toolbar select {
-      padding: 4px 6px; border: 1px solid #c5cdd9; border-radius: 4px; font-size: 13px;
+    #panel-filters { pointer-events: all; flex-shrink: 0; padding: 13px 14px; }
+    #panel-detail  { pointer-events: all; flex: 1; min-height: 0; overflow-y: auto;
+                     display: none; padding: 12px 14px; position: relative; }
+
+    /* ── Right column ── */
+    #right-col {
+      position: fixed; top: 10px; bottom: 10px; right: 10px;
+      display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+      pointer-events: none; z-index: 1000;
     }
-    #searchBtn {
-      padding: 5px 18px; background: #2563eb; color: #fff;
-      border: none; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: 500;
-    }
-    #searchBtn:hover:not(:disabled) { background: #1d4ed8; }
-    #searchBtn:disabled { background: #94a3b8; cursor: not-allowed; }
-    #status { margin-left: auto; color: #64748b; font-size: 12px; }
+    #legend { padding: 9px 13px; display: none; margin-top: auto; }
 
     /* ── Progress bar ── */
     #progress-wrap {
-      position: absolute; top: 0; left: 0; right: 0; height: 4px;
-      background: transparent; overflow: hidden; z-index: 10000; pointer-events: none;
+      position: fixed; top: 0; left: 0; right: 0; height: 3px;
+      z-index: 9999; pointer-events: none;
     }
     #progress-bar {
-      height: 100%; width: 0%; background: #2563eb;
-      transition: width 0.3s ease, opacity 0.4s ease;
-      opacity: 0;
+      height: 100%; width: 0%; background: #b45309;
+      transition: width 0.3s ease, opacity 0.4s ease; opacity: 0;
     }
 
-    /* ── Map ── */
-    #map { flex: 1; }
+    /* ── Filter panel internals ── */
+    .panel-title {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.09em;
+      text-transform: uppercase; color: #57534e; margin-bottom: 11px;
+    }
+    .field-row { margin-bottom: 18px; }
+    .field-label {
+      font-size: 11px; color: #57534e; margin-bottom: 5px;
+      display: flex; justify-content: space-between; align-items: baseline;
+    }
+    .field-label strong { color: #1c1917; font-size: 12px; font-weight: 600; }
 
-    /* ── Legend ── */
-    #legend {
-      display: none; position: absolute; bottom: 36px; right: 10px; z-index: 1000;
-      background: rgba(255,255,255,.92); border: 1px solid #cbd5e1;
-      border-radius: 6px; padding: 9px 13px; font-size: 12px; min-width: 180px;
-      box-shadow: 0 2px 8px rgba(0,0,0,.1);
+    /* noUiSlider skin */
+    .noUi-target {
+      background: rgba(180,140,90,0.18); border: 1px solid rgba(180,140,90,0.28);
+      box-shadow: none; height: 4px; border-radius: 2px;
     }
-    #legend b { font-size: 12px; }
-    #legend-bar { display: block; width: 100%; height: 11px; border-radius: 3px; margin: 5px 0 2px; }
-    #legend-labels { display: flex; justify-content: space-between; color: #64748b; }
-    .legend-water {
-      display: flex; align-items: center; gap: 6px; margin-top: 7px; color: #475569;
+    .noUi-connect { background: #b45309; }
+    .noUi-handle {
+      background: #fff; border: 2px solid #b45309;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.18);
+      width: 14px !important; height: 14px !important;
+      right: -7px !important; top: -6px !important;
+      border-radius: 50%; cursor: pointer;
     }
-    .dash-sample {
-      width: 28px; height: 0; border-top: 3px dashed #4a9eff; display: inline-block;
+    .noUi-handle::before, .noUi-handle::after { display: none; }
+    .noUi-tooltip {
+      font-size: 10px; padding: 1px 5px;
+      background: #292524; border: none; color: #fff; border-radius: 3px;
+      bottom: 130%;
     }
 
-    /* ── Tooltip ── */
-    .leaflet-tooltip.sl-tip { padding: 6px 8px; background: #1e293b; border: none; border-radius: 5px; box-shadow: 0 2px 8px rgba(0,0,0,.35); white-space: normal; max-width: 240px; }
-    .leaflet-tooltip.sl-tip::before { border-top-color: #1e293b; }
-    .tip-dist { color: #f1f5f9; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
-    /* ── Popup ── */
-    .leaflet-popup-content { font-size: 13px; line-height: 1.55; }
-    .sl-popup { min-width: 250px; max-width: 320px; }
-    .sl-popup .dist { font-size: 15px; font-weight: 600; margin-bottom: 5px; }
-    .sl-popup .sub { color: #475569; margin-bottom: 4px; font-size: 12px; }
-    .sl-popup .elev-row { color: #334155; font-size: 12px; margin-bottom: 3px; }
+    /* Mini inputs */
+    .mini-input {
+      width: 62px; padding: 4px 7px;
+      border: 1px solid rgba(180,140,90,0.32); border-radius: 5px;
+      font-size: 13px; color: #292524; background: rgba(255,255,255,0.7);
+      -moz-appearance: textfield;
+    }
+    .mini-input::-webkit-outer-spin-button,
+    .mini-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .mini-input:focus { outline: none; border-color: #b45309; box-shadow: 0 0 0 2px rgba(180,83,9,0.12); }
+    .input-unit { font-size: 12px; color: #57534e; }
+    .input-row { display: flex; align-items: center; gap: 5px; }
+
+    select.mini-select {
+      width: 100%; padding: 5px 7px;
+      border: 1px solid rgba(180,140,90,0.32); border-radius: 5px;
+      font-size: 13px; color: #292524; background: rgba(255,255,255,0.7);
+      cursor: pointer; appearance: auto;
+    }
+    select.mini-select:focus { outline: none; border-color: #b45309; }
+
+    /* Buttons */
+    .btn-row { display: flex; gap: 6px; margin-top: 11px; }
+    .btn-secondary {
+      flex: 1; padding: 7px 0;
+      background: rgba(255,255,255,0.65); border: 1px solid rgba(180,140,90,0.35);
+      border-radius: 6px; font-size: 12px; font-weight: 600; color: #78716c;
+      cursor: pointer; transition: background 0.15s, border-color 0.15s;
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.95); }
+    .btn-secondary.active {
+      background: #fef3c7; border-color: #b45309; color: #92400e;
+    }
+    .btn-primary {
+      flex: 1; padding: 7px 0;
+      background: #b45309; border: none;
+      border-radius: 6px; font-size: 12px; font-weight: 700; color: #fff;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .btn-primary:hover:not(:disabled) { background: #92400e; }
+    .btn-primary:disabled { background: #d4c8b4; cursor: not-allowed; color: #a8a29e; }
+
+    #status { margin-top: 9px; font-size: 11px; color: #57534e; line-height: 1.5; min-height: 15px; }
+
+    /* ── Detail panel ── */
+    #detail-close {
+      position: absolute; top: 9px; right: 10px;
+      background: none; border: none; font-size: 17px; color: #a8a29e;
+      cursor: pointer; line-height: 1; padding: 2px 4px;
+    }
+    #detail-close:hover { color: #292524; }
+    .detail-title { font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #a8a29e; margin-bottom: 10px; }
+    .sl-detail .dist { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+    .sl-detail .sub { color: #78716c; margin-bottom: 4px; font-size: 12px; }
+    .sl-detail .elev-row { color: #44403c; font-size: 12px; margin-bottom: 3px; }
     .water-tag {
       display: inline-block; background: #eff6ff; color: #1d4ed8;
       border: 1px solid #bfdbfe; border-radius: 3px;
       padding: 1px 7px; font-size: 11px; font-weight: 600; margin-right: 5px;
     }
     .anchor-card {
-      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 5px;
-      padding: 7px 9px; margin-top: 7px; font-size: 12px;
+      background: rgba(255,255,255,0.55); border: 1px solid rgba(180,140,90,0.2);
+      border-radius: 6px; padding: 7px 9px; margin-top: 7px; font-size: 12px;
     }
-    .anchor-card .ac-title { font-weight: 600; font-size: 12px; margin-bottom: 2px; }
-    .anchor-card .ac-row { color: #475569; }
-    .anchor-card a { color: #2563eb; text-decoration: none; font-size: 11px; }
+    .anchor-card .ac-title { font-weight: 700; font-size: 12px; margin-bottom: 2px; color: #292524; }
+    .anchor-card .ac-row { color: #78716c; }
+    .anchor-card a { color: #b45309; text-decoration: none; font-size: 11px; }
     .anchor-card a:hover { text-decoration: underline; }
+    .copy-btn {
+      background: none; border: 1px solid rgba(180,140,90,0.32); border-radius: 4px;
+      font-size: 10px; color: #78716c; cursor: pointer; padding: 2px 7px; flex-shrink: 0;
+      transition: border-color 0.12s, color 0.12s;
+    }
+    .copy-btn:hover { border-color: #b45309; color: #b45309; }
+    .focus-btn {
+      background: none; border: 1px solid rgba(180,140,90,0.32); border-radius: 5px;
+      font-size: 11px; color: #78716c; cursor: pointer; padding: 3px 9px; flex-shrink: 0;
+      white-space: nowrap; transition: border-color 0.12s, color 0.12s;
+    }
+    .focus-btn:hover { border-color: #b45309; color: #b45309; }
+
+    /* ── Layer panel ── */
+    #panel-layers { pointer-events: all; position: relative; flex-shrink: 0; }
+
+    #layers-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 36px; height: 36px;
+      background: rgba(250,246,240,0.93);
+      border: 1px solid rgba(180,140,90,0.22);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.14);
+      border-radius: 8px; cursor: pointer;
+      font-size: 19px; color: #78716c;
+      transition: color 0.15s;
+    }
+    #layers-btn:hover { color: #b45309; }
+
+    #layers-expanded {
+      display: none; position: absolute; top: 0; right: 0;
+      background: rgba(250,246,240,0.97);
+      border: 1px solid rgba(180,140,90,0.22);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.14);
+      border-radius: 10px; padding: 11px 13px; min-width: 190px;
+    }
+    #panel-layers:hover #layers-expanded { display: block; }
+    #panel-layers:hover #layers-btn    { opacity: 0; pointer-events: none; }
+
+    .layer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 9px; }
+    .layer-thumb {
+      position: relative; cursor: pointer; border-radius: 6px; overflow: hidden;
+      border: 2px solid transparent; transition: border-color 0.15s;
+      text-align: center;
+    }
+    .layer-thumb.active { border-color: #b45309; }
+    .layer-thumb:hover:not(.active) { border-color: rgba(180,140,90,0.5); }
+    .thumb-img { height: 38px; width: 100%; }
+    .layer-thumb span { display: block; padding: 3px 2px; font-size: 9px; font-weight: 700; color: #44403c; text-transform: uppercase; letter-spacing: 0.04em; }
+    .thumb-check {
+      position: absolute; top: 3px; right: 3px;
+      width: 13px; height: 13px;
+      background: rgba(255,255,255,0.55); border: 1.5px solid rgba(100,80,50,0.35);
+      border-radius: 3px; font-size: 9px; color: transparent;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      line-height: 1; pointer-events: none;
+    }
+    .layer-thumb.active .thumb-check {
+      background: #b45309; border-color: #b45309; color: #fff;
+    }
+
+    .overlay-section { border-top: 1px solid rgba(180,140,90,0.18); padding-top: 7px; }
+    .section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: #a8a29e; margin-bottom: 6px; }
+    .overlay-row { display: flex; align-items: center; gap: 6px; font-size: 11px; margin-bottom: 5px; color: #44403c; cursor: pointer; user-select: none; }
+    .overlay-row input[type=checkbox] { accent-color: #b45309; cursor: pointer; width: 13px; height: 13px; }
+    .overlay-row.disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+
+    /* Geolocate */
+    #geolocate-btn {
+      pointer-events: all; display: flex; align-items: center; justify-content: center;
+      width: 36px; height: 36px;
+      background: rgba(250,246,240,0.93);
+      border: 1px solid rgba(180,140,90,0.22);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.14);
+      border-radius: 8px; cursor: pointer;
+      font-size: 19px; color: #78716c; transition: color 0.15s;
+    }
+    #geolocate-btn:hover { color: #b45309; }
+
+    /* ── Legend internals ── */
+    #legend b { font-size: 12px; }
+    #legend-bar, #slope-bar, #elev-bar { display: block; width: 100%; height: 10px; border-radius: 3px; margin: 5px 0 2px; }
+    #legend-labels { display: flex; justify-content: space-between; color: #78716c; font-size: 12px; }
+    .legend-water { display: flex; align-items: center; gap: 6px; margin-top: 7px; color: #78716c; font-size: 12px; }
+    .dash-sample { width: 28px; height: 0; border-top: 3px dashed #4a9eff; display: inline-block; }
+
+    /* ── Elev hover tooltip ── */
+    #elev-tip {
+      position: fixed; display: none; pointer-events: none; z-index: 9999;
+      background: rgba(250,246,240,0.97); border: 1px solid rgba(180,140,90,0.28);
+      border-radius: 6px; padding: 4px 9px; font-size: 11px; color: #292524; line-height: 1.5;
+      white-space: nowrap; box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+      backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    }
+
+    /* ── Tooltip ── */
+    .leaflet-tooltip.sl-tip {
+      padding: 6px 9px;
+      background: rgba(250,246,240,0.97);
+      border: 1px solid rgba(180,140,90,0.25);
+      border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      white-space: normal; max-width: 240px;
+      backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    }
+    .leaflet-tooltip.sl-tip::before { border-top-color: rgba(250,246,240,0.97); }
+    .tip-dist { color: #292524; font-size: 12px; font-weight: 700; margin-bottom: 3px; }
+
+    /* Hide Leaflet's draw/edit/delete toolbar */
+    .leaflet-draw { display: none !important; }
+    /* Hide default attribution Leaflet controls that conflict */
+    .leaflet-top.leaflet-left { top: 10px; left: 280px; }
+    .leaflet-top.leaflet-right { top: 10px; right: 60px; }
   </style>
 </head>
 <body>
 
-<div id="toolbar">
-  <label>Min <input type="number" id="minM" value="15" min="1" max="4000" step="1"> m</label>
-  <label>Max <input type="number" id="maxM" value="50" min="1" max="4000" step="1"> m</label>
-  <label>Water
-    <select id="water">
-      <option value="any">Any</option>
-      <option value="only">Water crossings only</option>
-      <option value="exclude">Exclude water</option>
-    </select>
-  </label>
-  <label>Max slope <input type="number" id="maxSlope" value="10" min="0" max="90" step="0.5"> °</label>
-  <label>Clearance <input type="number" id="clearanceM" value="1" min="0" max="50" step="0.5"> m</label>
-  <button id="searchBtn" onclick="doSearch()">Search</button>
-  <span id="status">Draw a rectangle on the map, then click Search</span>
-</div>
-
-<div id="progress-wrap"><div id="progress-bar"></div></div>
 <div id="map"></div>
+<div id="progress-wrap"><div id="progress-bar"></div></div>
 
-<div id="legend">
-  <b>Distance (m)</b>
-  <canvas id="legend-bar" height="11"></canvas>
-  <div id="legend-labels">
-    <span id="leg-min"></span><span id="leg-max"></span>
+<!-- ═══ LEFT COLUMN ═══ -->
+<div id="left-col">
+
+  <div id="panel-filters" class="island">
+    <div class="panel-title">Spotlines</div>
+
+    <!-- Length range slider -->
+    <div class="field-row">
+      <div class="field-label">
+        Line length &nbsp;<strong id="slider-val">15 – 50 m</strong>
+      </div>
+      <div id="length-slider" style="margin: 10px 6px 6px"></div>
+    </div>
+
+    <!-- Max slope + Clearance -->
+    <div class="field-row" style="display:flex;gap:14px;align-items:flex-end">
+      <div>
+        <div class="field-label">Max slope</div>
+        <div class="input-row">
+          <input type="number" id="maxSlope" class="mini-input" value="10" min="0" max="90" step="0.5">
+          <span class="input-unit">°</span>
+        </div>
+      </div>
+      <div>
+        <div class="field-label">Clearance</div>
+        <div class="input-row">
+          <input type="number" id="clearanceM" class="mini-input" value="1" min="0" max="50" step="0.5">
+          <span class="input-unit">m</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Water -->
+    <div class="field-row">
+      <div class="field-label">Water crossings</div>
+      <select id="water" class="mini-select">
+        <option value="any">Any</option>
+        <option value="only">Only</option>
+        <option value="exclude">Exclude</option>
+      </select>
+    </div>
+
+    <div class="btn-row">
+      <button id="selectAreaBtn" class="btn-secondary" onclick="toggleSelectArea()">Select area</button>
+      <button id="searchBtn" class="btn-primary" onclick="doSearch()" disabled>Search</button>
+    </div>
+
+    <div id="status">Draw a rectangle to begin</div>
   </div>
-  <div class="legend-water">
-    <span class="dash-sample"></span> Water crossing
+
+  <!-- Line detail (hidden until click) -->
+  <div id="panel-detail" class="island">
+    <button id="detail-close" onclick="closeDetail()">×</button>
+    <div class="detail-title">Line detail</div>
+    <div id="detail-content"></div>
   </div>
+
+  <!-- Legend -->
+  <div id="legend" class="island" style="flex-shrink:0">
+    <b>Distance (m)</b>
+    <canvas id="legend-bar" height="10"></canvas>
+    <div id="legend-labels">
+      <span id="leg-min"></span><span id="leg-max"></span>
+    </div>
+    <div class="legend-water">
+      <span class="dash-sample"></span> Water crossing
+    </div>
+    <div id="slope-legend" style="display:none;margin-top:8px;border-top:1px solid rgba(180,140,90,0.18);padding-top:7px">
+      <b>Slope</b>
+      <canvas id="slope-bar" height="10"></canvas>
+      <div style="display:flex;justify-content:space-between;color:#78716c;font-size:12px">
+        <span id="slope-leg-min">0°</span><span id="slope-leg-max">45°</span>
+      </div>
+    </div>
+    <div id="elev-legend" style="display:none;margin-top:8px;border-top:1px solid rgba(180,140,90,0.18);padding-top:7px">
+      <b>Elevation (m)</b>
+      <canvas id="elev-bar" height="10"></canvas>
+      <div style="display:flex;justify-content:space-between;color:#78716c;font-size:12px">
+        <span id="elev-leg-min">—</span><span id="elev-leg-max">—</span>
+      </div>
+    </div>
+  </div>
+
 </div>
+
+<!-- ═══ RIGHT COLUMN ═══ -->
+<div id="right-col">
+
+  <!-- Layer switcher -->
+  <div id="panel-layers">
+    <button id="layers-btn" title="Layers">⊞</button>
+    <div id="layers-expanded">
+      <div class="panel-title" style="margin-bottom:9px">Base layer</div>
+      <div class="layer-grid" id="layer-grid"></div>
+      <div class="overlay-section">
+        <div class="section-label">Overlays</div>
+        <div class="layer-grid">
+          <div class="layer-thumb" id="ov-slope-thumb" onclick="toggleOverlay('slope')">
+            <div class="thumb-img" style="background:linear-gradient(to right,#ffff72,#fd8d3c,#bd0026)"></div>
+            <span>Slope</span>
+            <div class="thumb-check">✓</div>
+          </div>
+          <div class="layer-thumb" id="ov-elev-thumb" onclick="toggleOverlay('elev')">
+            <div class="thumb-img" style="background:linear-gradient(to right,#256670,#427849,#aab55d,#bfa564,#fdface)"></div>
+            <span>Elevation</span>
+            <div class="thumb-check">✓</div>
+          </div>
+          <div class="layer-thumb" id="ov-contour-thumb" onclick="toggleOverlay('contour')">
+            <div class="thumb-img" style="background:#d4b896"></div>
+            <span>Contours</span>
+            <div class="thumb-check">✓</div>
+          </div>
+          <div class="layer-thumb" id="ov-names-thumb" onclick="toggleOverlay('names')">
+            <div class="thumb-img" style="background:#eae6e0"></div>
+            <span>Names</span>
+            <div class="thumb-check">✓</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Geolocate -->
+  <button id="geolocate-btn" title="Go to my location" onclick="geolocate()">⊕</button>
+
+
+</div>
+
+<div id="elev-tip"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
 <script>
-// ── Plasma colormap ──────────────────────────────────────────────────────────
+// ── Colormaps ────────────────────────────────────────────────────────────────
+// Cyan → blue → violet → magenta
 const PLASMA = [
-  [0.00, [13,   8,  135]],
-  [0.25, [126,  3,  168]],
-  [0.50, [204, 71,  120]],
-  [0.75, [248, 148,  65]],
-  [1.00, [240, 249,  33]],
+  [0.00, [  0, 220, 240]],
+  [0.33, [  0, 100, 255]],
+  [0.67, [130,   0, 255]],
+  [1.00, [255,   0, 180]],
 ];
-
-function plasmaColor(t) {
+const JET = [ // YlOrRd: yellow (flat) → red (steep)
+  [0.000, [255, 255, 178]],
+  [0.250, [254, 204,  92]],
+  [0.500, [253, 141,  60]],
+  [0.750, [240,  59,  32]],
+  [1.000, [189,   0,  38]],
+];
+function _interp(cmap, t) {
   t = Math.max(0, Math.min(1, t));
   let i = 0;
-  while (i < PLASMA.length - 2 && t >= PLASMA[i + 1][0]) i++;
-  const [t0, c0] = PLASMA[i];
-  const [t1, c1] = PLASMA[Math.min(i + 1, PLASMA.length - 1)];
+  while (i < cmap.length - 2 && t >= cmap[i + 1][0]) i++;
+  const [t0, c0] = cmap[i];
+  const [t1, c1] = cmap[Math.min(i + 1, cmap.length - 1)];
   const f = t1 > t0 ? (t - t0) / (t1 - t0) : 0;
   const ch = v => Math.round(v).toString(16).padStart(2, '0');
   return '#' + [0, 1, 2].map(k => ch(c0[k] + f * (c1[k] - c0[k]))).join('');
 }
-
-// Slope heatmap tiles are computed server-side (GLO-30 / TINItaly) and cached on disk.
+// gist_earth (land portion, t=0.22→1.0) — deep green valleys → olive → sandy tan → near-white peaks
+const TERRAIN = [
+  [0.00, [ 37, 102, 124]],
+  [0.14, [ 53, 134, 112]],
+  [0.28, [ 66, 151,  78]],
+  [0.42, [120, 166,  82]],
+  [0.57, [169, 179,  91]],
+  [0.71, [191, 165, 100]],
+  [0.85, [220, 185, 164]],
+  [1.00, [253, 250, 250]],
+];
+const cmapColor   = t => _interp(PLASMA, t);
+const slopeColor  = t => _interp(JET, t);
+const terrainColor = t => _interp(TERRAIN, t);
 
 // ── Map setup ────────────────────────────────────────────────────────────────
 const TRENTO = [46.0667, 11.1167];
-const map = L.map('map', { center: TRENTO, zoom: 14 });
+const map = L.map('map', { center: TRENTO, zoom: 14, zoomControl: false });
+
+// Zoom control at bottom-right corner (above legend area)
+L.control.zoom({ position: 'bottomright' }).addTo(map);
 
 map.createPane('labelsPane');
 map.getPane('labelsPane').style.zIndex = 450;
 map.getPane('labelsPane').style.pointerEvents = 'none';
 
-const baseLayers = {
-  'Satellite names': L.layerGroup([
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+map.createPane('blankPane');
+map.getPane('blankPane').style.zIndex = 399;
+map.getPane('blankPane').style.pointerEvents = 'none';
+
+map.createPane('elevPane');
+map.getPane('elevPane').style.zIndex = 400;
+map.getPane('elevPane').style.pointerEvents = 'none';
+
+map.createPane('heatmapPane');
+map.getPane('heatmapPane').style.zIndex = 401;
+map.getPane('heatmapPane').style.pointerEvents = 'none';
+
+map.createPane('contourPane');
+map.getPane('contourPane').style.zIndex = 402;
+map.getPane('contourPane').style.pointerEvents = 'none';
+
+map.createPane('linesPane');
+map.getPane('linesPane').style.zIndex = 403;
+
+map.createPane('selectedPane');
+map.getPane('selectedPane').style.zIndex = 404;
+
+map.createPane('markerPane');
+map.getPane('markerPane').style.zIndex = 500;
+map.getPane('markerPane').style.pointerEvents = 'none';
+
+// Base layers
+const LAYERS = {
+  osm: {
+    label: 'OSM',
+    color: '#b5c99a',
+    layer: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>', maxZoom: 19,
+    }),
+  },
+  sat: {
+    label: 'Satellite',
+    color: '#1a2535',
+    layer: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
       { attribution: 'Tiles &copy; Esri', maxZoom: 19 }),
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',
-      { attribution: '&copy; CARTO', maxZoom: 19, pane: 'labelsPane' }),
-  ]),
-  'Satellite raw': L.tileLayer(
-    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    { attribution: 'Tiles &copy; Esri', maxZoom: 19 }
-  ),
-  'OSM': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> contributors', maxZoom: 19,
-  }),
-  'Topo': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a>', maxZoom: 17,
-  }),
+  },
+  topo: {
+    label: 'Topo',
+    color: '#c4b49a',
+    layer: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a>', maxZoom: 17,
+    }),
+  },
 };
 
-const overlays = {
-  'Slope heatmap': L.tileLayer('/slope/{z}/{x}/{y}.png', {
-    minZoom: 10, maxNativeZoom: 14, maxZoom: 19,
+const labelsLayer = L.tileLayer(
+  'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',
+  { attribution: '&copy; CARTO', maxZoom: 19, pane: 'labelsPane' }
+);
+
+let activeBaseKey = 'osm';
+LAYERS.osm.layer.addTo(map);
+
+// Build layer thumbnail grid
+const layerGrid = document.getElementById('layer-grid');
+Object.entries(LAYERS).forEach(([key, cfg]) => {
+  const el = document.createElement('div');
+  el.className = 'layer-thumb' + (key === 'osm' ? ' active' : '');
+  el.dataset.key = key;
+  el.innerHTML = `<div class="thumb-img" style="background:${cfg.color}"></div><span>${cfg.label}</span><div class="thumb-check">✓</div>`;
+  el.addEventListener('click', () => toggleBase(key));
+  layerGrid.appendChild(el);
+});
+const blankThumb = document.createElement('div');
+blankThumb.className = 'layer-thumb';
+blankThumb.id = 'base-blank-thumb';
+blankThumb.dataset.key = 'blank';
+blankThumb.innerHTML = `<div class="thumb-img" style="background:repeating-conic-gradient(#ddd8d0 0% 25%,#f5f1ec 0% 50%) 0 0/8px 8px"></div><span>None</span><div class="thumb-check">✓</div>`;
+blankThumb.addEventListener('click', () => toggleBase('blank'));
+layerGrid.appendChild(blankThumb);
+
+function _setHeatmapOpacity(full) {
+  slopeLayer.setOpacity(1.0);
+  if (elevLayer) elevLayer.setOpacity(full ? 1.0 : 0.5);
+}
+
+let _blankOn = false;
+let _blankRect = null;
+function _addBlankRect() {
+  _removeBlankRect();
+  if (!currentBbox) return;
+  _blankRect = L.rectangle(
+    [[currentBbox.south, currentBbox.west], [currentBbox.north, currentBbox.east]],
+    { stroke: false, fillColor: '#ffffff', fillOpacity: 1.0, pane: 'blankPane', interactive: false }
+  ).addTo(map);
+}
+function _removeBlankRect() {
+  if (_blankRect) { map.removeLayer(_blankRect); _blankRect = null; }
+}
+
+function toggleBase(key) {
+  if (key === 'blank') {
+    _blankOn = !_blankOn;
+    document.getElementById('base-blank-thumb').classList.toggle('active', _blankOn);
+    if (_blankOn) _addBlankRect(); else _removeBlankRect();
+    _setHeatmapOpacity(_blankOn);
+    return;
+  }
+  const thumbs = document.querySelectorAll('.layer-thumb[data-key]:not([data-key="blank"])');
+  if (key === activeBaseKey) {
+    map.removeLayer(LAYERS[key].layer);
+    activeBaseKey = null;
+    thumbs.forEach(el => el.classList.remove('active'));
+    return;
+  }
+  if (activeBaseKey) map.removeLayer(LAYERS[activeBaseKey].layer);
+  LAYERS[key].layer.addTo(map);
+  activeBaseKey = key;
+  thumbs.forEach(el => el.classList.toggle('active', el.dataset.key === key));
+}
+
+// ── Slope / contour overlays ─────────────────────────────────────────────────
+const _EMPTY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQAABjE+ibYAAAAASUVORK5CYII=';
+
+function _makeSlopeOverlay(url, bounds) {
+  const l = L.imageOverlay(url, bounds, {
+    opacity: 1.0,
+    pane: 'heatmapPane',
     attribution: 'Slope &copy; Copernicus GLO-30 / TINItaly INGV',
-  }),
-};
+  });
+  l.on('add',    () => { drawnItems.setStyle({ fillOpacity: 0 }); showSlopeLegend(true); });
+  l.on('remove', () => { drawnItems.setStyle({ fillOpacity: 0.2 }); showSlopeLegend(false); });
+  return l;
+}
 
-baseLayers['OSM'].addTo(map);
-L.control.layers(baseLayers, overlays).addTo(map);
+let slopeLayer = _makeSlopeOverlay(_EMPTY_PNG, [[0, 0], [0.001, 0.001]]);
+let _slopeStats = { min: 0, max: 45 };
+let contourLayer = null;
+let _contourSvgEl = null;
+let _contourZ0 = 0;
+let elevLayer = null;
+let _elevStats = { min: 0, max: 0 };
 
-// Geolocate on load; fall back to Trento silently
+// Overlay toggle state
+const OV_STATE = { slope: false, elev: false, contour: false, names: false };
+
+function toggleOverlay(key) {
+  const on = !OV_STATE[key];
+  OV_STATE[key] = on;
+  document.getElementById(`ov-${key}-thumb`).classList.toggle('active', on);
+  if (key === 'slope') {
+    if (on) slopeLayer.addTo(map); else map.removeLayer(slopeLayer);
+  } else if (key === 'elev') {
+    if (!elevLayer) return;
+    if (on) { elevLayer.addTo(map); showElevLegend(true); }
+    else { map.removeLayer(elevLayer); showElevLegend(false); }
+  } else if (key === 'contour') {
+    if (!contourLayer) return;
+    if (on) contourLayer.addTo(map); else map.removeLayer(contourLayer);
+  } else if (key === 'names') {
+    if (on) labelsLayer.addTo(map); else map.removeLayer(labelsLayer);
+  }
+}
+
+function _setOverlayActive(key, on) {
+  OV_STATE[key] = on;
+  document.getElementById(`ov-${key}-thumb`).classList.toggle('active', on);
+}
+
+function _updateContourStrokes() {
+  if (!_contourSvgEl) return;
+  const f = Math.pow(2, -(map.getZoom() - _contourZ0) * 0.5);
+  const mg = _contourSvgEl.querySelector('#c-minor');
+  const mj = _contourSvgEl.querySelector('#c-major');
+  if (mg) mg.setAttribute('stroke-width', (1.5 * f).toFixed(3));
+  if (mj) mj.setAttribute('stroke-width', (3 * f).toFixed(3));
+}
+map.on('zoom', _updateContourStrokes);
+
+async function updateContourLayer(bbox) {
+  const wasOn = (contourLayer && map.hasLayer(contourLayer)) || OV_STATE.contour;
+  if (contourLayer) { map.removeLayer(contourLayer); contourLayer = null; }
+  _contourSvgEl = null;
+  try {
+    const qs = new URLSearchParams({ south: bbox.south, west: bbox.west, north: bbox.north, east: bbox.east });
+    const res = await fetch('/slope/contours?' + qs);
+    if (!res.ok) return;
+    const svgText = await res.text();
+    _contourSvgEl = new DOMParser().parseFromString(svgText, 'image/svg+xml').documentElement;
+    _contourZ0 = map.getZoom();
+    contourLayer = L.svgOverlay(_contourSvgEl, [[bbox.south, bbox.west], [bbox.north, bbox.east]], { interactive: false, pane: 'contourPane' });
+    if (wasOn) { contourLayer.addTo(map); _setOverlayActive('contour', true); }
+  } catch {}
+}
+
+async function updateSlopeLayer(bbox) {
+  const wasOn = map.hasLayer(slopeLayer) || OV_STATE.slope;
+  map.removeLayer(slopeLayer);
+  const url = `/slope/image?south=${bbox.south}&west=${bbox.west}&north=${bbox.north}&east=${bbox.east}`;
+  slopeLayer = _makeSlopeOverlay(url, [[bbox.south, bbox.west], [bbox.north, bbox.east]]);
+  if (wasOn) { slopeLayer.addTo(map); _setOverlayActive('slope', true); }
+  try {
+    const qs = new URLSearchParams({ south: bbox.south, west: bbox.west, north: bbox.north, east: bbox.east });
+    const res = await fetch('/slope/stats?' + qs);
+    if (res.ok) {
+      const { min_deg, max_deg } = await res.json();
+      _slopeStats = { min: min_deg, max: max_deg };
+      showSlopeLegend(map.hasLayer(slopeLayer));
+    }
+  } catch {}
+}
+
+async function updateElevLayer(bbox) {
+  const wasOn = (elevLayer && map.hasLayer(elevLayer)) || OV_STATE.elev;
+  if (elevLayer) map.removeLayer(elevLayer);
+  const url = `/elevation/image?south=${bbox.south}&west=${bbox.west}&north=${bbox.north}&east=${bbox.east}`;
+  elevLayer = L.imageOverlay(url, [[bbox.south, bbox.west], [bbox.north, bbox.east]], {
+    opacity: _blankOn ? 1.0 : 0.5, pane: 'elevPane',
+    attribution: 'Elevation &copy; Copernicus GLO-30 / TINItaly INGV',
+  });
+  elevLayer.on('remove', () => showElevLegend(false));
+  if (wasOn) { elevLayer.addTo(map); _setOverlayActive('elev', true); }
+  try {
+    const qs = new URLSearchParams({ south: bbox.south, west: bbox.west, north: bbox.north, east: bbox.east });
+    const res = await fetch('/elevation/stats?' + qs);
+    if (res.ok) {
+      const { min_m, max_m } = await res.json();
+      _elevStats = { min: min_m, max: max_m };
+      showElevLegend(elevLayer && map.hasLayer(elevLayer));
+    }
+  } catch {}
+}
+
+function showElevLegend(visible) {
+  document.getElementById('elev-legend').style.display = visible ? 'block' : 'none';
+  if (!visible) return;
+  const { min, max } = _elevStats;
+  _fillBar('elev-bar', t => terrainColor(t));
+  document.getElementById('elev-leg-min').textContent = min + ' m';
+  document.getElementById('elev-leg-max').textContent = max + ' m';
+}
+
+// ── Geolocation ──────────────────────────────────────────────────────────────
 if (navigator.geolocation) {
   navigator.geolocation.getCurrentPosition(
     pos => map.setView([pos.coords.latitude, pos.coords.longitude], 14),
@@ -191,77 +702,89 @@ if (navigator.geolocation) {
   );
 }
 
-// ── Locate button ────────────────────────────────────────────────────────────
-const LocateControl = L.Control.extend({
-  options: { position: 'topleft' },
-  onAdd() {
-    const btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control leaflet-control-locate');
-    btn.title = 'Go to my location';
-    btn.innerHTML = '⊕';
-    btn.style.cssText = 'width:30px;height:30px;font-size:18px;line-height:28px;cursor:pointer;background:#fff;border:none;';
-    L.DomEvent.on(btn, 'click', L.DomEvent.stopPropagation)
-              .on(btn, 'click', L.DomEvent.preventDefault)
-              .on(btn, 'click', () => {
-                if (!navigator.geolocation) return;
-                btn.style.opacity = '0.5';
-                navigator.geolocation.getCurrentPosition(
-                  pos => { map.setView([pos.coords.latitude, pos.coords.longitude], 15); btn.style.opacity = '1'; },
-                  ()  => { btn.style.opacity = '1'; },
-                  { timeout: 8000 }
-                );
-              });
-    return btn;
-  },
-});
-new LocateControl().addTo(map);
+function geolocate() {
+  if (!navigator.geolocation) return;
+  const btn = document.getElementById('geolocate-btn');
+  btn.style.opacity = '0.5';
+  navigator.geolocation.getCurrentPosition(
+    pos => { map.setView([pos.coords.latitude, pos.coords.longitude], 15); btn.style.opacity = '1'; },
+    ()  => { btn.style.opacity = '1'; },
+    { timeout: 8000 }
+  );
+}
 
-// ── Draw control ─────────────────────────────────────────────────────────────
+// ── noUiSlider ───────────────────────────────────────────────────────────────
+const sliderEl = document.getElementById('length-slider');
+noUiSlider.create(sliderEl, {
+  start: [15, 50],
+  connect: true,
+  range: { min: [1], '20%': [10, 1], '45%': [50, 5], '70%': [200, 10], '85%': [500, 25], max: [4000] },
+  tooltips: false,
+});
+sliderEl.noUiSlider.on('update', (vals) => {
+  document.getElementById('slider-val').textContent = `${Math.round(vals[0])} – ${Math.round(vals[1])} m`;
+});
+
+// ── Draw rectangle ───────────────────────────────────────────────────────────
 const drawnItems = new L.FeatureGroup().addTo(map);
+
+// Include Draw control for event system only (toolbar hidden via CSS)
 map.addControl(new L.Control.Draw({
-  draw: { rectangle: true, polyline: false, polygon: false, circle: false, circlemarker: false, marker: false },
-  edit: { featureGroup: drawnItems },
+  draw: { rectangle: { shapeOptions: { color: '#b45309', weight: 2 } }, polyline: false, polygon: false, circle: false, circlemarker: false, marker: false },
+  edit: false,
 }));
 
+let _drawHandler = null;
+
+function toggleSelectArea() {
+  const btn = document.getElementById('selectAreaBtn');
+  if (_drawHandler) {
+    _drawHandler.disable();
+    _drawHandler = null;
+    btn.classList.remove('active');
+    return;
+  }
+  _drawHandler = new L.Draw.Rectangle(map, { shapeOptions: { color: '#b45309', weight: 2, fillOpacity: 0.08 } });
+  _drawHandler.enable();
+  btn.classList.add('active');
+}
+
 let currentBbox = null;
-const resultsLayer = L.layerGroup().addTo(map);
 
 map.on(L.Draw.Event.CREATED, e => {
   drawnItems.clearLayers();
   drawnItems.addLayer(e.layer);
   const b = e.layer.getBounds();
   currentBbox = { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() };
-  setStatus('Rectangle drawn — click Search');
+  if (_blankOn) _addBlankRect();
+  _drawHandler = null;
+  document.getElementById('selectAreaBtn').classList.remove('active');
+  document.getElementById('searchBtn').disabled = false;
+  setStatus('Area selected — click Search');
 });
-
-map.on(L.Draw.Event.EDITED, e => {
-  e.layers.eachLayer(l => {
-    const b = l.getBounds();
-    currentBbox = { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() };
-  });
-});
-
-map.on(L.Draw.Event.DELETED, () => { currentBbox = null; setStatus('Draw a rectangle on the map, then click Search'); });
 
 // ── Search ───────────────────────────────────────────────────────────────────
-async function doSearch() {
-  if (!currentBbox) { alert('Draw a rectangle on the map first.'); return; }
+const resultsLayer = L.layerGroup([], { pane: 'linesPane' }).addTo(map);
 
-  const minM       = parseFloat(document.getElementById('minM').value);
-  const maxM       = parseFloat(document.getElementById('maxM').value);
-  const water      = document.getElementById('water').value;
-  const maxSlope   = parseFloat(document.getElementById('maxSlope').value);
+async function doSearch() {
+  if (!currentBbox) { setStatus('Draw an area first'); return; }
+
+  const vals      = sliderEl.noUiSlider.get();
+  const minM      = parseFloat(vals[0]);
+  const maxM      = parseFloat(vals[1]);
+  const water     = document.getElementById('water').value;
+  const maxSlope  = parseFloat(document.getElementById('maxSlope').value);
   const clearanceM = parseFloat(document.getElementById('clearanceM').value) || 0;
 
-  if (isNaN(minM) || isNaN(maxM) || minM >= maxM) {
-    alert('Min distance must be a number less than max distance.'); return;
-  }
+  if (minM >= maxM) { setStatus('Min must be less than max'); return; }
 
   const { south, west, north, east } = currentBbox;
   if (Math.abs(north - south) > 0.1 || Math.abs(east - west) > 0.1) {
-    alert('Bounding box too large — max 0.1° per side (~11 km).'); return;
+    setStatus('Area too large — max 0.1° per side'); return;
   }
 
   setLoading(true);
+  closeDetail();
   resultsLayer.clearLayers();
 
   try {
@@ -271,14 +794,40 @@ async function doSearch() {
       const body = await resp.json().catch(() => ({}));
       throw new Error(body.detail || `HTTP ${resp.status}`);
     }
-    const geojson = await resp.json();
-    const { realMin, realMax } = renderResults(geojson, minM, maxM);
-    const n = geojson.features.length;
-    setStatus(`${n} pair${n !== 1 ? 's' : ''} found`);
-    drawLegend(realMin, realMax);
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop();
+      for (const part of parts) {
+        const line = part.trim();
+        if (!line.startsWith('data: ')) continue;
+        let msg;
+        try { msg = JSON.parse(line.slice(6)); } catch { continue; }
+        if (msg.error) throw new Error(msg.error);
+        if (msg.status) setStatus(msg.status);
+        if (msg.pct != null) setProgress(msg.pct);
+        if (msg.result) {
+          const geojson = msg.result;
+          const { realMin, realMax } = renderResults(geojson, minM, maxM);
+          const n = geojson.features.length;
+          setStatus(`${n} pair${n !== 1 ? 's' : ''} found`);
+          drawLegend(realMin, realMax);
+          showSlopeLegend(map.hasLayer(slopeLayer));
+          updateSlopeLayer(currentBbox);
+          updateContourLayer(currentBbox);
+          updateElevLayer(currentBbox);
+        }
+      }
+    }
   } catch (err) {
     setStatus('Error: ' + err.message);
-    alert('Search failed: ' + err.message);
   } finally {
     setLoading(false);
   }
@@ -287,37 +836,369 @@ async function doSearch() {
 // ── Rendering ────────────────────────────────────────────────────────────────
 function renderResults(geojson, minM, maxM) {
   resultsLayer.clearLayers();
-  const dists = geojson.features.map(f => f.properties.distance_m);
+  _outlineGeoJson = null; _coloredGeoJson = null; _selectedLayer = null; _currentDetailCoords = null;
+  const dists  = geojson.features.map(f => f.properties.distance_m);
   const realMin = dists.length ? Math.min(...dists) : minM;
   const realMax = dists.length ? Math.max(...dists) : maxM;
+  _lastRealMin = realMin; _lastRealMax = realMax;
+  const outline = L.geoJSON(geojson, {
+    style: f => ({
+      color: 'white', weight: 5.5, opacity: 1,
+      dashArray: f.properties.over_water ? '9 7' : null, pane: 'linesPane',
+    }),
+  });
   const layer = L.geoJSON(geojson, {
     style: f => {
       const t = realMax > realMin ? (f.properties.distance_m - realMin) / (realMax - realMin) : 0.5;
-      return {
-        color: plasmaColor(t),
-        weight: 3,
-        opacity: 0.9,
-        dashArray: f.properties.over_water ? '9 7' : null,
-      };
+      return { color: cmapColor(t), weight: 3, opacity: 0.9, dashArray: f.properties.over_water ? '9 7' : null, pane: 'linesPane' };
     },
     onEachFeature: (f, lyr) => {
       lyr.bindTooltip(buildTooltip(f.properties), {
-        direction: 'top', sticky: true,
-        className: 'sl-tip', opacity: 1,
+        direction: 'top', sticky: true, className: 'sl-tip', opacity: 1,
       });
-      lyr.bindPopup(() => buildPopup(f.properties), { maxWidth: 340, minWidth: 260 });
+      lyr.on('click', () => showDetail(f.properties, f.geometry.coordinates, lyr));
     },
   });
+  _outlineGeoJson = outline;
+  _coloredGeoJson = layer;
+  resultsLayer.addLayer(outline);
   resultsLayer.addLayer(layer);
   return { realMin, realMax };
 }
 
-// ── Popup HTML ───────────────────────────────────────────────────────────────
-function kindLabel(k) {
-  return k.replace(/_/g, ' ');
+// ── Detail panel ─────────────────────────────────────────────────────────────
+let _currentDetailPair = null;
+let _elevMarker = null;
+let _svgCursorState = null; // shared between SVG and map hover
+
+function _updateElevMarker(lat, lon) {
+  if (!_elevMarker) {
+    _elevMarker = L.circleMarker([lat, lon], {
+      radius: 7, color: '#f97316', fillColor: '#f97316',
+      fillOpacity: 0.85, weight: 2.5, pane: 'markerPane',
+    }).addTo(map);
+  } else {
+    _elevMarker.setLatLng([lat, lon]);
+  }
 }
 
-function anchorCard(label, id, kind, tags) {
+function _removeElevMarker() {
+  if (_elevMarker) { map.removeLayer(_elevMarker); _elevMarker = null; }
+}
+
+function _updateElevCursorAt(t, tooltipClientX, tooltipClientY) {
+  if (!_svgCursorState || !_currentDetailPair) return;
+  const { cursorG, cLine, cDot, PL, iW, PT, iH, mn, mx, n, rng } = _svgCursorState;
+  const { p } = _currentDetailPair;
+  const cx = (PL + t * iW).toFixed(2);
+  cursorG.removeAttribute('display');
+  cLine.setAttribute('x1', cx); cLine.setAttribute('x2', cx);
+
+  const idx   = Math.min(Math.round(t * (n - 1)), n - 1);
+  const elev  = (p.terrain_elevs || [])[idx];
+  const ttype = (p.terrain_types || [])[idx] || 'unknown';
+  const distM = Math.round(p.distance_m * t);
+
+  if (elev != null && rng > 0) {
+    const cy = (PT + iH - ((elev - mn) / rng) * iH).toFixed(2);
+    cDot.setAttribute('cx', cx); cDot.setAttribute('cy', cy);
+    cDot.removeAttribute('display');
+  } else {
+    cDot.setAttribute('display', 'none');
+  }
+
+  const tip  = document.getElementById('elev-tip');
+  const col  = TERRAIN_COLORS[ttype] || '#78716c';
+  const tlbl = TERRAIN_LABEL[ttype] || (ttype !== 'unknown' ? ttype : '');
+  const parts = [
+    `<span style="color:#a8a29e">${distM}m</span>`,
+    `<b style="color:#292524">${elev != null ? elev + 'm' : '—'}</b>`,
+  ];
+  if (tlbl) parts.push(`<span style="color:${col}">${tlbl}</span>`);
+  tip.innerHTML = parts.join(' <span style="color:rgba(180,140,90,0.4)">·</span> ');
+
+  if (tooltipClientX != null) {
+    const tipW = tip.offsetWidth || 170;
+    tip.style.display = 'block';
+    tip.style.left = (tooltipClientX + tipW > window.innerWidth ? tooltipClientX - tipW - 8 : tooltipClientX + 10) + 'px';
+    tip.style.top  = (tooltipClientY - 40) + 'px';
+  } else {
+    tip.style.display = 'none';
+  }
+}
+
+function _hideCursor() {
+  if (_svgCursorState) _svgCursorState.cursorG.setAttribute('display', 'none');
+  document.getElementById('elev-tip').style.display = 'none';
+  _removeElevMarker();
+}
+
+const _MAP_HOVER_PX = 12; // pixel snap distance
+
+function _onMapHover(e) {
+  if (!_svgCursorState || !_currentDetailPair) return;
+  const { coords } = _currentDetailPair;
+  if (!coords || coords.length < 2) return;
+  const [[lonA, latA], [lonB, latB]] = coords;
+
+  // Work in pixel space for threshold check and t computation
+  const pA = map.latLngToContainerPoint([latA, lonA]);
+  const pB = map.latLngToContainerPoint([latB, lonB]);
+  const pM = e.containerPoint;
+  const dx = pB.x - pA.x, dy = pB.y - pA.y;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((pM.x - pA.x) * dx + (pM.y - pA.y) * dy) / len2));
+  const nearX = pA.x + t * dx, nearY = pA.y + t * dy;
+  const dist = Math.hypot(pM.x - nearX, pM.y - nearY);
+
+  if (dist > _MAP_HOVER_PX) { _hideCursor(); return; }
+
+  _updateElevCursorAt(t, e.originalEvent.clientX, e.originalEvent.clientY);
+  _updateElevMarker(latA + t * (latB - latA), lonA + t * (lonB - lonA));
+}
+
+function _attachElevHover() {
+  _svgCursorState = null;
+  if (!_currentDetailPair) return;
+  const { coords } = _currentDetailPair;
+  const svg = document.querySelector('#detail-content svg[data-elev]');
+  if (!svg) return;
+
+  const PL  = +svg.dataset.pl,  iW = +svg.dataset.iw;
+  const PT  = +svg.dataset.pt,  iH = +svg.dataset.ih;
+  const mn  = +svg.dataset.mn,  mx = +svg.dataset.mx;
+  const n   = +svg.dataset.n;
+  const rng = mx - mn;
+
+  const cursorG = svg.querySelector('.elev-cursor');
+  const cLine   = svg.querySelector('.elev-cursor-line');
+  const cDot    = svg.querySelector('.elev-cursor-dot');
+  const overlay = svg.querySelector('.elev-overlay');
+  if (!overlay) return;
+
+  _svgCursorState = { cursorG, cLine, cDot, PL, iW, PT, iH, mn, mx, n, rng };
+
+  overlay.addEventListener('mousemove', e => {
+    const svgPt = svg.createSVGPoint();
+    svgPt.x = e.clientX; svgPt.y = e.clientY;
+    const pt = svgPt.matrixTransform(svg.getScreenCTM().inverse());
+    const t  = Math.max(0, Math.min(1, (pt.x - PL) / iW));
+    _updateElevCursorAt(t, e.clientX, e.clientY);
+    if (coords && coords.length >= 2) {
+      const [[lonA, latA], [lonB, latB]] = coords;
+      _updateElevMarker(latA + t * (latB - latA), lonA + t * (lonB - lonA));
+    }
+  });
+
+  overlay.addEventListener('mouseleave', _hideCursor);
+}
+
+function showDetail(p, coords, lyr) {
+  if (_selectedLayer) _restoreAll();
+  map.off('mousemove', _onMapHover);
+  map.off('mouseout', _hideCursor);
+  _selectedLayer = lyr;
+  _currentDetailCoords = coords || null;
+  _currentDetailPair = { p, coords: coords || null };
+  if (lyr) _dimOthers(lyr);
+  document.getElementById('detail-content').innerHTML = buildDetailHtml(p, coords);
+  document.getElementById('panel-detail').style.display = 'block';
+  _attachElevHover();
+  map.on('mousemove', _onMapHover);
+  map.on('mouseout', _hideCursor);
+}
+
+function closeDetail() {
+  map.off('mousemove', _onMapHover);
+  map.off('mouseout', _hideCursor);
+  _restoreAll();
+  _currentDetailCoords = null;
+  _currentDetailPair = null;
+  _svgCursorState = null;
+  _removeElevMarker();
+  document.getElementById('elev-tip').style.display = 'none';
+  document.getElementById('panel-detail').style.display = 'none';
+  document.getElementById('detail-content').innerHTML = '';
+}
+
+// ── Helpers: terrain colours ─────────────────────────────────────────────────
+const TERRAIN_COLORS = {
+  forest: '#166534', grassland: '#4d7c0f', farmland: '#854d0e',
+  water: '#0369a1', wetland: '#0e7490', rock: '#57534e',
+  sand: '#b45309', shrub: '#3f6212', urban: '#374151',
+  snow: '#94a3b8', unknown: '#1e293b',
+};
+const TERRAIN_LABEL = {
+  forest: 'Forest', grassland: 'Grassland', farmland: 'Farmland',
+  water: 'Water', wetland: 'Wetland', rock: 'Rock', sand: 'Sand',
+  shrub: 'Shrub', urban: 'Urban', snow: 'Snow/Ice', unknown: '',
+};
+
+const CATEGORY_COLORS = {
+  highway: '#6b7280', waterway: '#0ea5e9', water: '#0284c7',
+  railway: '#7c3aed', building: '#92400e', landuse: '#65a30d',
+  leisure: '#16a34a', power: '#d97706', telecom: '#ea580c',
+};
+
+// Greedy minimum-row layout for interval/Gantt chart
+function _layoutGantt(features) {
+  const rows = []; // each entry = t_end of last feature placed in that row
+  const items = [];
+  for (const f of [...features].sort((a, b) => a.t_start - b.t_start)) {
+    let placed = false;
+    for (let r = 0; r < rows.length; r++) {
+      if (rows[r] <= f.t_start - 0.01) {
+        items.push({ ...f, row: r });
+        rows[r] = f.t_end;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      items.push({ ...f, row: rows.length });
+      rows.push(f.t_end);
+    }
+  }
+  return { items, nRows: rows.length };
+}
+
+function corridorTerrainBar(corridorTerrain, W) {
+  if (!corridorTerrain) return '';
+  const entries = Object.entries(corridorTerrain).filter(([k]) => k !== 'unknown');
+  if (!entries.length) return '';
+  W = W || 292;
+  const H = 14, R = 3;
+  let x = 0, rects = '', chips = '';
+  for (const [type, frac] of entries) {
+    const w = Math.round(frac * W);
+    if (w < 1) continue;
+    const col = TERRAIN_COLORS[type] || '#64748b';
+    rects += `<rect x="${x}" y="0" width="${w}" height="${H}" fill="${col}"/>`;
+    chips += `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;font-size:10px;color:#44403c">` +
+      `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${col}"></span>` +
+      `${TERRAIN_LABEL[type] || type} ${Math.round(frac * 100)}%</span>`;
+    x += w;
+  }
+  const unknownFrac = corridorTerrain['unknown'] || 0;
+  if (unknownFrac > 0 && x < W) {
+    rects += `<rect x="${x}" y="0" width="${W - x}" height="${H}" fill="#d6d3d1"/>`;
+  }
+  return `<div style="margin:6px 0 2px">` +
+    `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;border-radius:${R}px;overflow:hidden">${rects}</svg>` +
+    `<div style="margin-top:4px;line-height:1.8">${chips}</div></div>`;
+}
+
+function corridorFeaturesGantt(features, distanceM, W) {
+  if (!features || !features.length) return '';
+  W = W || 292;
+  const { items, nRows } = _layoutGantt(features);
+  if (!nRows) return '';
+  const ROW_H = 18, GAP = 3;
+  const chartH = nRows * (ROW_H + GAP) - GAP;
+  const H = chartH + 16; // room for x-axis labels
+  let bars = '';
+  for (const item of items) {
+    const x = (item.t_start * W).toFixed(1);
+    const w = Math.max(2, ((item.t_end - item.t_start) * W)).toFixed(1);
+    const y = item.row * (ROW_H + GAP);
+    const col = CATEGORY_COLORS[item.category] || '#78716c';
+    bars += `<rect x="${x}" y="${y}" width="${w}" height="${ROW_H}" fill="${col}" rx="3" opacity="0.88"/>`;
+    if (parseFloat(w) > 22) {
+      bars += `<text x="${(parseFloat(x) + parseFloat(w) / 2).toFixed(1)}" y="${y + ROW_H / 2}"` +
+        ` dy="0.35em" font-size="9" fill="white" text-anchor="middle"` +
+        ` font-family="system-ui,sans-serif" font-weight="600">${item.label}</text>`;
+    }
+  }
+  const axisY = chartH + 1;
+  const xAxis = `<line x1="0" y1="${axisY}" x2="${W}" y2="${axisY}" stroke="rgba(120,90,50,0.2)" stroke-width="1"/>` +
+    `<text x="0" y="${axisY + 11}" font-size="9" fill="#a8a29e" font-family="system-ui" text-anchor="start">0</text>` +
+    `<text x="${W}" y="${axisY + 11}" font-size="9" fill="#a8a29e" font-family="system-ui" text-anchor="end">${Math.round(distanceM)}m</text>`;
+  return `<div style="margin-top:6px">` +
+    `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="display:block;width:100%">` +
+    `${bars}${xAxis}</svg></div>`;
+}
+
+function kindLabel(k) { return (k || '').replace(/_/g, ' '); }
+
+// ── Bearing / compass ────────────────────────────────────────────────────────
+function computeBearing(lonA, latA, lonB, latB) {
+  const toRad = d => d * Math.PI / 180;
+  const y = Math.sin(toRad(lonB - lonA)) * Math.cos(toRad(latB));
+  const x = Math.cos(toRad(latA)) * Math.sin(toRad(latB))
+          - Math.sin(toRad(latA)) * Math.cos(toRad(latB)) * Math.cos(toRad(lonB - lonA));
+  return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+}
+function cardinal(deg) {
+  return ['N','NE','E','SE','S','SW','W','NW'][Math.round(deg / 45) % 8];
+}
+function compassSvg(deg) {
+  const R = 13, cx = R + 1, cy = R + 1, sz = 2 * R + 2;
+  const a = (deg - 90) * Math.PI / 180;
+  const tx = (cx + R * 0.65 * Math.cos(a)).toFixed(1);
+  const ty = (cy + R * 0.65 * Math.sin(a)).toFixed(1);
+  const bx = (cx - R * 0.42 * Math.cos(a)).toFixed(1);
+  const by = (cy - R * 0.42 * Math.sin(a)).toFixed(1);
+  const ticks = [[0,0,-R+1.5],[90,R-1.5,0],[180,0,R-1.5],[270,-R+1.5,0]].map(([d,dx,dy]) =>
+    `<text x="${(cx+dx).toFixed(1)}" y="${(cy+dy+2).toFixed(1)}" font-size="5" fill="#a8a29e" text-anchor="middle" dominant-baseline="middle" font-family="system-ui">${['N','E','S','W'][d/90]}</text>`
+  ).join('');
+  return `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}" style="vertical-align:middle;flex-shrink:0">
+    <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="rgba(180,140,90,0.3)" stroke-width="1"/>
+    ${ticks}
+    <line x1="${bx}" y1="${by}" x2="${tx}" y2="${ty}" stroke="#b45309" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="${tx}" cy="${ty}" r="2.5" fill="#b45309"/>
+  </svg>`;
+}
+
+// ── Selection highlight ──────────────────────────────────────────────────────
+let _selectedLayer = null;
+let _outlineGeoJson = null;
+let _coloredGeoJson = null;
+let _lastRealMin = 0, _lastRealMax = 1;
+let _currentDetailCoords = null;
+
+let _selectedHighlightOutline = null;
+let _selectedHighlightColor = null;
+
+function _dimOthers(selectedLyr) {
+  // Dim the entire linesPane with one CSS opacity change — no per-path iteration.
+  map.getPane('linesPane').style.opacity = '0.5';
+
+  // Lift the selected line into selectedPane at full opacity.
+  const f = selectedLyr.feature;
+  const t = _lastRealMax > _lastRealMin
+    ? (f.properties.distance_m - _lastRealMin) / (_lastRealMax - _lastRealMin)
+    : 0.5;
+  _selectedHighlightOutline = L.geoJSON(f, {
+    style: { color: 'white', weight: 9, opacity: 1.0,
+             dashArray: f.properties.over_water ? '9 7' : null, pane: 'selectedPane' },
+  }).addTo(map);
+  _selectedHighlightColor = L.geoJSON(f, {
+    style: { color: cmapColor(t), weight: 5.5, opacity: 1.0,
+             dashArray: f.properties.over_water ? '9 7' : null, pane: 'selectedPane' },
+  }).addTo(map);
+}
+
+function _restoreAll() {
+  map.getPane('linesPane').style.opacity = '1.0';
+  if (_selectedHighlightOutline) { map.removeLayer(_selectedHighlightOutline); _selectedHighlightOutline = null; }
+  if (_selectedHighlightColor)   { map.removeLayer(_selectedHighlightColor);   _selectedHighlightColor   = null; }
+  _selectedLayer = null;
+}
+
+function focusLine() {
+  if (!_currentDetailCoords) return;
+  const [[lonA, latA], [lonB, latB]] = _currentDetailCoords;
+  map.flyToBounds([[latA, lonA], [latB, lonB]], { padding: [60, 60], maxZoom: 18 });
+}
+
+function copyCoords(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '✓';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 1400);
+  }).catch(() => {});
+}
+
+function anchorCard(label, id, kind, tags, copyBtn) {
   tags = tags || {};
   const rows = [];
   const add = (k, ...keys) => {
@@ -331,264 +1212,294 @@ function anchorCard(label, id, kind, tags) {
     ? `<a href="https://www.openstreetmap.org/node/${id}" target="_blank">View on OSM ↗</a>`
     : '';
   return `<div class="anchor-card">
-    <div class="ac-title">${label}: ${kindLabel(kind)}</div>
-    ${rows.join('')}
-    ${osmLink}
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:4px">
+      <div class="ac-title">${label}: ${kindLabel(kind)}</div>
+      ${copyBtn || ''}
+    </div>
+    ${rows.join('')}${osmLink}
   </div>`;
 }
 
-const TERRAIN_COLORS = {
-  forest:    '#166534',
-  grassland: '#4d7c0f',
-  farmland:  '#854d0e',
-  water:     '#0369a1',
-  wetland:   '#0e7490',
-  rock:      '#57534e',
-  sand:      '#b45309',
-  shrub:     '#3f6212',
-  urban:     '#374151',
-  snow:      '#94a3b8',
-  orchard:   '#3d6b21',
-  tundra:    '#4a7c59',
-  unknown:   '#1e293b',
-};
+// Nice Y-axis ticks for elevation charts (whole metres only)
+function _niceTicks(lo, hi, n) {
+  const range = hi - lo;
+  if (range < 1) return [];
+  const rough = range / n;
+  const mag = Math.pow(10, Math.floor(Math.log10(Math.max(rough, 1))));
+  const norm = rough / mag;
+  const step = Math.max(1, mag * (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10));
+  const start = Math.ceil(lo / step) * step;
+  const ticks = [];
+  for (let v = start; v <= hi + 1e-9; v += step) ticks.push(Math.round(v));
+  return ticks;
+}
 
-const TERRAIN_LABEL = {
-  forest: 'Forest', grassland: 'Grassland', farmland: 'Farmland',
-  water: 'Water', wetland: 'Wetland', rock: 'Rock', sand: 'Sand',
-  shrub: 'Shrub', urban: 'Urban', snow: 'Snow/Ice',
-  orchard: 'Orchard', tundra: 'Tundra', unknown: '',
-};
+// Catmull-Rom spline → SVG cubic bezier path
+function catmullRomPath(pts) {
+  if (!pts || pts.length < 2) return '';
+  if (pts.length === 2) return `M ${pts[0][0]},${pts[0][1]} L ${pts[1][0]},${pts[1][1]}`;
+  let d = `M ${pts[0][0]},${pts[0][1]}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(pts.length - 1, i + 2)];
+    const cp1x = (p1[0] + (p2[0] - p0[0]) / 6).toFixed(2);
+    const cp1y = (p1[1] + (p2[1] - p0[1]) / 6).toFixed(2);
+    const cp2x = (p2[0] - (p3[0] - p1[0]) / 6).toFixed(2);
+    const cp2y = (p2[1] - (p3[1] - p1[1]) / 6).toFixed(2);
+    d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2[0]},${p2[1]}`;
+  }
+  return d;
+}
 
-// Compact elevation profile for hover tooltips (matches old/frontend/map.js style)
 function elevProfileSvgCompact(elevs, elevA, elevB) {
   if (!elevs || !elevs.length) return '';
   const valid = elevs.filter(e => e != null);
   if (!valid.length) return '';
-  const W = 220, H = 64, PX = 3, PY = 4;
-  const n = elevs.length;
+  const W = 200, H = 58, PX = 4, PY = 5, n = elevs.length;
   const allVals = [...valid];
   if (elevA != null) allVals.push(elevA);
   if (elevB != null) allVals.push(elevB);
-  const lo = Math.min(...allVals) - 1;
-  const hi = Math.max(...allVals) + 1;
-  const sx = i => (PX + (i / (n - 1)) * (W - 2 * PX)).toFixed(1);
-  const sy = e => e != null ? (H - PY - ((e - lo) / (hi - lo)) * (H - 2 * PY)).toFixed(1) : null;
-  const validPts = elevs.map((e, i) => e != null ? `${sx(i)},${sy(e)}` : null).filter(Boolean);
+  const lo = Math.min(...allVals) - 1, hi = Math.max(...allVals) + 1, rng = hi - lo;
+  const sx = i => PX + (i / (n - 1)) * (W - 2 * PX);
+  const sy = e => e != null ? H - PY - ((e - lo) / rng) * (H - 2 * PY) : null;
+  const pts = elevs.map((e, i) => e != null ? [sx(i), sy(e)] : null).filter(Boolean);
   const firstIdx = elevs.findIndex(e => e != null);
   const lastIdx  = elevs.length - 1 - [...elevs].reverse().findIndex(e => e != null);
-  const poly = `${sx(firstIdx)},${H} ${validPts.join(' ')} ${sx(lastIdx)},${H}`;
+  const sp = catmullRomPath(pts);
+  const fp = sp ? sp + ` L ${sx(lastIdx).toFixed(2)},${H} L ${sx(firstIdx).toFixed(2)},${H} Z` : '';
   let slackLine = '';
   if (elevA != null && elevB != null) {
-    slackLine =
-      `<line x1="${sx(0)}" y1="${sy(elevA)}" x2="${sx(n-1)}" y2="${sy(elevB)}" stroke="#f48849" stroke-width="2" stroke-dasharray="5 3"/>` +
-      `<circle cx="${sx(0)}" cy="${sy(elevA)}" r="3" fill="#f48849"/>` +
-      `<circle cx="${sx(n-1)}" cy="${sy(elevB)}" r="3" fill="#f48849"/>`;
+    const x0 = sx(0).toFixed(2), x1 = sx(n-1).toFixed(2);
+    const y0 = sy(elevA).toFixed(2), y1 = sy(elevB).toFixed(2);
+    slackLine = `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="#b45309" stroke-width="1.8" stroke-dasharray="4 2.5" opacity="0.85"/>` +
+      `<circle cx="${x0}" cy="${y0}" r="2.5" fill="#b45309"/>` +
+      `<circle cx="${x1}" cy="${y1}" r="2.5" fill="#b45309"/>` +
+      `<text x="${parseFloat(x0)+5}" y="${y0}" dy="0.35em" font-size="7" fill="#b45309" font-family="system-ui,sans-serif" font-weight="600">${Math.round(elevA)}m</text>` +
+      `<text x="${(parseFloat(x1)-5).toFixed(1)}" y="${y1}" dy="0.35em" font-size="7" fill="#b45309" text-anchor="end" font-family="system-ui,sans-serif" font-weight="600">${Math.round(elevB)}m</text>`;
   }
-  return (
-    `<svg width="${W}" height="${H}" style="display:block;margin-top:5px;border-radius:3px;background:#0d0d18">` +
-    `<polygon points="${poly}" fill="#1e4a30" opacity="0.95"/>` +
-    `<polyline points="${validPts.join(' ')}" fill="none" stroke="#4db870" stroke-width="1.5"/>` +
-    slackLine +
-    `</svg>`
-  );
+  return `<svg width="${W}" height="${H}" style="display:block;margin-top:5px;border-radius:3px">
+    <path d="${fp}" fill="rgba(13,148,136,0.08)"/>
+    <path d="${sp}" fill="none" stroke="#0d9488" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    ${slackLine}</svg>`;
 }
 
-function elevSvg(terrain, elevA, elevB, terrainTypes, W, H) {
+function elevSvg(terrain, elevA, elevB, terrainTypes, distance_m, W, H) {
   if (!terrain) return '';
   const valid = terrain.filter(e => e != null);
   if (!valid.length) return '';
-  W = W || 268; H = H || 105;
-  const PL = 34, PR = 4, PT = 5, PB = 38;  // extra bottom room for terrain strip + labels
-  const iW = W - PL - PR, iH = H - PT - PB;
-  const n = terrain.length;
-
-  // Include anchor elevations in range so slackline is always within bounds
+  W = W || 292; H = H || 160;
+  const PL = 36, PR = 6, PT = 8, PB = 50;
+  const iW = W - PL - PR, iH = H - PT - PB, n = terrain.length;
+  const xAxisY = PT + iH;
   const allVals = [...valid];
   if (elevA != null) allVals.push(elevA);
   if (elevB != null) allVals.push(elevB);
-  const mn = Math.min(...allVals) - 1;
-  const mx = Math.max(...allVals) + 1;
-  const rng = mx - mn;
+  const mn = Math.min(...allVals) - 1, mx = Math.max(...allVals) + 1, rng = mx - mn;
+  const px = i => PL + (i / (n - 1)) * iW;
+  const py = e => PT + iH - ((e - mn) / rng) * iH;
 
-  const px = (i) => (PL + (i / (n - 1)) * iW).toFixed(1);
-  const py = (e) => (PT + iH - ((e - mn) / rng) * iH).toFixed(1);
+  // Y-axis: merge A/B elevations with nice ticks, deduplicate, render uniformly
+  let grid = '', yLabels = '';
+  const niceTicks = _niceTicks(mn + 1, mx - 1, 3);
+  const abRounded = [elevA, elevB].filter(v => v != null).map(v => Math.round(v));
+  const allTicks = [...new Set([...niceTicks, ...abRounded])].sort((a, b) => a - b);
+  for (const v of allTicks) {
+    const gy = py(v).toFixed(1);
+    grid    += `<line x1="${PL}" y1="${gy}" x2="${W-PR}" y2="${gy}" stroke="rgba(120,90,50,0.2)" stroke-width="1"/>`;
+    yLabels += `<text x="${PL-8}" y="${gy}" dy="0.35em" font-size="9.5" fill="#78716c" text-anchor="end" font-family="system-ui,sans-serif">${v}m</text>`;
+  }
 
-  // Terrain-type background strips (inside chart area)
-  let strips = '';
-  if (terrainTypes && terrainTypes.length === n) {
-    for (let i = 0; i < n - 1; i++) {
-      const x1 = PL + (i / (n - 1)) * iW;
-      const x2 = PL + ((i + 1) / (n - 1)) * iW;
-      const col = TERRAIN_COLORS[terrainTypes[i]] || TERRAIN_COLORS.unknown;
-      strips += `<rect x="${x1.toFixed(1)}" y="${PT}" width="${(x2 - x1).toFixed(1)}" height="${iH}" fill="${col}" opacity="0.45"/>`;
+  // X-axis distance ticks (always show 0 and total distance)
+  let xTickMarks = '', xLabels = '';
+  if (distance_m > 0) {
+    const niceX = _niceTicks(1, distance_m - 1, 3);
+    const allX  = [...new Set([0, ...niceX, Math.round(distance_m)])].sort((a, b) => a - b);
+    for (const d of allX) {
+      const tx     = (PL + (d / distance_m) * iW).toFixed(1);
+      const anchor = d === 0 ? 'start' : d === allX[allX.length - 1] ? 'end' : 'middle';
+      xTickMarks += `<line x1="${tx}" y1="${xAxisY}" x2="${tx}" y2="${(xAxisY + 3).toFixed(1)}" stroke="rgba(120,90,50,0.45)" stroke-width="1"/>`;
+      xLabels    += `<text x="${tx}" y="${(xAxisY + 12).toFixed(1)}" font-size="9.5" fill="#78716c" text-anchor="${anchor}" font-family="system-ui,sans-serif">${d}m</text>`;
     }
   }
 
-  // Terrain profile — skip null samples to avoid NaN coordinates
-  const profilePts = terrain
-    .map((e, i) => e != null ? `${px(i)},${py(e)}` : null)
-    .filter(Boolean);
-  const firstIdx = terrain.findIndex(e => e != null);
-  const lastIdx  = terrain.length - 1 - [...terrain].reverse().findIndex(e => e != null);
-  const fillPoly = `${px(firstIdx)},${PT + iH} ${profilePts.join(' ')} ${px(lastIdx)},${PT + iH}`;
-
-  // Slackline: straight line between elev_a and elev_b
-  let slackLine = '';
-  if (elevA != null && elevB != null) {
-    const yA = PT + iH - ((elevA - mn) / rng) * iH;
-    const yB = PT + iH - ((elevB - mn) / rng) * iH;
-    slackLine = `<line x1="${PL}" y1="${yA.toFixed(1)}" x2="${W - PR}" y2="${yB.toFixed(1)}" stroke="#fb923c" stroke-width="2" stroke-dasharray="5 3"/>` +
-      `<circle cx="${PL}" cy="${yA.toFixed(1)}" r="3" fill="#fb923c"/>` +
-      `<circle cx="${W - PR}" cy="${yB.toFixed(1)}" r="3" fill="#fb923c"/>`;
-  }
-
-  // Terrain strip + labels below X axis
-  const xAxisY = PT + iH;
-  const stripY = xAxisY + 2;
-  const stripH = 5;
-  const labelY = stripY + stripH + 9;  // baseline for terrain type text
-  let terrainBand = '';
-  let terrainLabels = '';
+  // Terrain strips + band + labels
+  let strips = '', terrainBand = '', terrainLabels = '';
   if (terrainTypes && terrainTypes.length === n) {
-    // Coloured strip below x-axis
     for (let i = 0; i < n - 1; i++) {
-      const x1 = PL + (i / (n - 1)) * iW;
-      const x2 = PL + ((i + 1) / (n - 1)) * iW;
+      const x1 = px(i), x2 = px(i + 1);
       const col = TERRAIN_COLORS[terrainTypes[i]] || TERRAIN_COLORS.unknown;
-      terrainBand += `<rect x="${x1.toFixed(1)}" y="${stripY}" width="${(x2 - x1).toFixed(1)}" height="${stripH}" fill="${col}" opacity="0.9"/>`;
+      strips      += `<rect x="${x1.toFixed(2)}" y="${PT}" width="${(x2-x1).toFixed(2)}" height="${iH}" fill="${col}" opacity="0.12"/>`;
+      terrainBand += `<rect x="${x1.toFixed(2)}" y="${(xAxisY+23).toFixed(1)}" width="${(x2-x1).toFixed(2)}" height="3.5" fill="${col}" opacity="0.7"/>`;
     }
-    // Label each unique terrain type at the centre of its first run
     let i = 0;
     while (i < n) {
-      const t = terrainTypes[i];
-      let j = i + 1;
+      const t = terrainTypes[i]; let j = i + 1;
       while (j < n && terrainTypes[j] === t) j++;
       if (t && t !== 'unknown') {
-        const cx = PL + (((i + j - 1) / 2) / (n - 1)) * iW;
+        const cx = px((i + j - 1) / 2);
         const col = TERRAIN_COLORS[t] || TERRAIN_COLORS.unknown;
-        const lbl = TERRAIN_LABEL[t] || t;
-        terrainLabels += `<text x="${cx.toFixed(1)}" y="${labelY}" font-size="7.5" fill="${col}" text-anchor="middle" font-family="system-ui,sans-serif">${lbl}</text>`;
+        terrainLabels += `<text x="${cx.toFixed(2)}" y="${(xAxisY+36).toFixed(1)}" font-size="9.5" fill="${col}" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="600">${TERRAIN_LABEL[t] || t}</text>`;
       }
       i = j;
     }
   }
 
-  // A / B endpoint labels
-  const abY = H - 2;
+  // Smooth profile path
+  const pts = terrain.map((e, i) => e != null ? [px(i), py(e)] : null).filter(Boolean);
+  const firstIdx = terrain.findIndex(e => e != null);
+  const lastIdx  = terrain.length - 1 - [...terrain].reverse().findIndex(e => e != null);
+  const sp = catmullRomPath(pts);
+  const fp = sp + ` L ${px(lastIdx).toFixed(2)},${xAxisY.toFixed(2)} L ${px(firstIdx).toFixed(2)},${xAxisY.toFixed(2)} Z`;
 
-  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:4px 0">
-    <rect width="${W}" height="${H}" fill="#0d0d18" rx="3"/>
-    ${strips}
-    <polygon points="${fillPoly}" fill="#1e4a30" opacity="0.95"/>
-    <polyline points="${profilePts.join(' ')}" fill="none" stroke="#4db870" stroke-width="1.5" stroke-linejoin="round"/>
+  // Slackline overlay
+  let slackLine = '';
+  if (elevA != null && elevB != null) {
+    const yA = py(elevA).toFixed(2), yB = py(elevB).toFixed(2);
+    slackLine = `<line x1="${PL}" y1="${yA}" x2="${(W-PR).toFixed(2)}" y2="${yB}" stroke="#b45309" stroke-width="2" stroke-dasharray="5 3" opacity="0.85"/>` +
+      `<circle cx="${PL}" cy="${yA}" r="3.5" fill="#b45309"/>` +
+      `<circle cx="${(W-PR).toFixed(2)}" cy="${yB}" r="3.5" fill="#b45309"/>`;
+  }
+
+  // Interactive cursor group (hidden until hover)
+  const cursor = `<g class="elev-cursor" display="none">
+    <line class="elev-cursor-line" x1="${PL}" y1="${PT}" x2="${PL}" y2="${xAxisY}" stroke="rgba(180,140,90,0.5)" stroke-width="1" stroke-dasharray="3 2"/>
+    <circle class="elev-cursor-dot" cx="${PL}" cy="${PT + iH/2}" r="3.5" fill="#b45309" stroke="rgba(250,246,240,0.9)" stroke-width="1.5"/>
+  </g>`;
+
+  // Transparent mouse-capture rect
+  const overlay = `<rect class="elev-overlay" x="${PL}" y="${PT}" width="${iW}" height="${iH}" fill="transparent" style="cursor:crosshair"/>`;
+
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"
+    data-elev="1" data-pl="${PL}" data-pr="${PR}" data-pt="${PT}" data-pb="${PB}"
+    data-iw="${iW}" data-ih="${iH}" data-mn="${mn}" data-mx="${mx}" data-n="${n}"
+    style="display:block;width:100%;border-radius:4px;overflow:hidden">
+    ${strips}${grid}
+    <path d="${fp}" fill="rgba(13,148,136,0.07)"/>
+    <path d="${sp}" fill="none" stroke="#0d9488" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
     ${slackLine}
-    <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${xAxisY}" stroke="#334155" stroke-width="1"/>
-    <line x1="${PL}" y1="${xAxisY}" x2="${W - PR}" y2="${xAxisY}" stroke="#334155" stroke-width="1"/>
-    <text x="${PL - 3}" y="${PT + 6}" font-size="9" fill="#64748b" text-anchor="end">${Math.round(mx - 1)}m</text>
-    <text x="${PL - 3}" y="${xAxisY}" font-size="9" fill="#64748b" text-anchor="end">${Math.round(mn + 1)}m</text>
-    ${terrainBand}
-    ${terrainLabels}
-    <text x="${PL + 2}" y="${abY}" font-size="9" fill="#64748b">A</text>
-    <text x="${W - PR - 10}" y="${abY}" font-size="9" fill="#64748b">B</text>
+    <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${xAxisY}" stroke="rgba(120,90,50,0.4)" stroke-width="1"/>
+    <line x1="${PL}" y1="${xAxisY}" x2="${W-PR}" y2="${xAxisY}" stroke="rgba(120,90,50,0.4)" stroke-width="1"/>
+    ${yLabels}
+    ${xTickMarks}${xLabels}
+    ${terrainBand}${terrainLabels}
+    ${cursor}${overlay}
   </svg>`;
 }
 
 function buildTooltip(p) {
-  let elevHtml = '';
-  const svg = elevProfileSvgCompact(p.terrain_elevs, p.elev_a, p.elev_b);
-  if (svg) {
-    // A is always westernmost so positive rise means uphill toward east
-    const rise = (p.elev_b != null && p.elev_a != null) ? (p.elev_b - p.elev_a) : 0;
-    const dir = rise > 0.5 ? '↗' : rise < -0.5 ? '↘' : '→';
-    const sdeg = p.slope_deg != null ? p.slope_deg + '°' : '?';
-    const spct = p.slope_pct != null ? Math.abs(p.slope_pct).toFixed(1) + '%' : '?';
-    const eA = p.elev_a != null ? p.elev_a + ' m' : '?';
-    const eB = p.elev_b != null ? p.elev_b + ' m' : '?';
-    elevHtml =
-      `<div style="font-size:11px;color:#94a3b8;margin:3px 0 1px">${dir} <b style="color:#e2e8f0">${sdeg}</b> (${spct}) · ${eA} → ${eB}</div>` +
-      svg;
-  }
-  return `<div class="tip-dist">${p.distance_m} m</div>${elevHtml}`;
+  const rise = (p.elev_b != null && p.elev_a != null) ? (p.elev_b - p.elev_a) : 0;
+  const dir  = p.slope_deg != null ? (rise > 0.5 ? '↗' : rise < -0.5 ? '↘' : '→') : '';
+  const sdeg = p.slope_deg != null ? ` <span style="font-size:10px;font-weight:400;color:#78716c">${dir}${p.slope_deg}°</span>` : '';
+  const svg  = elevProfileSvgCompact(p.terrain_elevs, p.elev_a, p.elev_b);
+  return `<div class="tip-dist">${p.distance_m} m${sdeg}</div>${svg ? svg : ''}`;
 }
 
-function buildPopup(p) {
+function buildDetailHtml(p, coords) {
   const water = p.over_water ? '<span class="water-tag">Water crossing</span>' : '';
-  const elevRow = (p.elev_a != null || p.elev_b != null)
-    ? `<div class="elev-row">Elev: ${p.elev_a != null ? p.elev_a + ' m' : '?'} → ${p.elev_b != null ? p.elev_b + ' m' : '?'} &nbsp;·&nbsp; Slope: ${p.slope_pct != null ? Math.abs(p.slope_pct).toFixed(1) + '%' : '?'} (${p.slope_deg != null ? p.slope_deg + '°' : '?'})</div>`
-    : '';
 
-  // Unique terrain types along the line, in order of first appearance
-  let terrainRow = '';
-  if (p.terrain_types && p.terrain_types.length) {
-    const seen = [], unique = [];
-    for (const t of p.terrain_types) {
-      if (t && t !== 'unknown' && !seen.includes(t)) { seen.push(t); unique.push(t); }
-    }
-    if (unique.length) {
-      const swatches = unique.map(t =>
-        `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:6px">
-           <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${TERRAIN_COLORS[t] || '#64748b'}"></span>
-           <span>${TERRAIN_LABEL[t] || t}</span>
-         </span>`
-      ).join('');
-      terrainRow = `<div class="elev-row" style="margin-top:2px">Terrain: ${swatches}</div>`;
-    }
+  let bearingHtml = '', copyA = '', copyB = '';
+  if (coords && coords.length >= 2) {
+    const [[lonA, latA], [lonB, latB]] = coords;
+    const deg = computeBearing(lonA, latA, lonB, latB);
+    bearingHtml = `<div style="display:flex;align-items:center;gap:5px;margin:3px 0 6px;font-size:12px;color:#78716c">
+      ${compassSvg(deg)}
+      <span><b style="color:#292524">${Math.round(deg)}°</b> ${cardinal(deg)}</span>
+    </div>`;
+    copyA = `<button class="copy-btn" onclick="copyCoords('${latA.toFixed(6)},${lonA.toFixed(6)}',this)">Copy</button>`;
+    copyB = `<button class="copy-btn" onclick="copyCoords('${latB.toFixed(6)},${lonB.toFixed(6)}',this)">Copy</button>`;
   }
 
-  return `<div class="sl-popup">
-    <div class="dist">${water}${p.distance_m} m</div>
-    <div class="sub">${kindLabel(p.anchor_a_kind)} → ${kindLabel(p.anchor_b_kind)}</div>
-    ${elevRow}
-    ${terrainRow}
-    ${elevSvg(p.terrain_elevs, p.elev_a, p.elev_b, p.terrain_types)}
-    ${anchorCard('Anchor A', p.anchor_a_id, p.anchor_a_kind, p.anchor_a_tags)}
-    ${anchorCard('Anchor B', p.anchor_b_id, p.anchor_b_kind, p.anchor_b_tags)}
+  const rise = (p.elev_b != null && p.elev_a != null) ? (p.elev_b - p.elev_a) : 0;
+  const sDir = p.slope_deg != null ? (rise > 0.5 ? '↗' : rise < -0.5 ? '↘' : '→') : '';
+  const slopeSuffix = p.slope_deg != null
+    ? ` <span style="font-size:12px;font-weight:400;color:#78716c">${sDir}${p.slope_deg}°</span>`
+    : '';
+  const terrainBar = corridorTerrainBar(p.corridor_terrain);
+  const featGantt  = corridorFeaturesGantt(p.corridor_features, p.distance_m);
+  const corridorSection = (terrainBar || featGantt)
+    ? `<div style="margin-top:8px;border-top:1px solid rgba(180,140,90,0.15);padding-top:7px">` +
+      `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#a8a29e;margin-bottom:5px">Corridor</div>` +
+      terrainBar + featGantt + `</div>`
+    : '';
+
+  return `<div class="sl-detail">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:2px">
+      <div>
+        <div class="dist">${water}${p.distance_m} m${slopeSuffix}</div>
+        <div class="sub">${kindLabel(p.anchor_a_kind)} → ${kindLabel(p.anchor_b_kind)}</div>
+      </div>
+      <button class="focus-btn" onclick="focusLine()">⌖ Focus</button>
+    </div>
+    ${bearingHtml}
+    ${elevSvg(p.terrain_elevs, p.elev_a, p.elev_b, p.terrain_types, p.distance_m)}
+    ${corridorSection}
+    ${anchorCard('Anchor A', p.anchor_a_id, p.anchor_a_kind, p.anchor_a_tags, copyA)}
+    ${anchorCard('Anchor B', p.anchor_b_id, p.anchor_b_kind, p.anchor_b_tags, copyB)}
   </div>`;
 }
 
 // ── Legend ───────────────────────────────────────────────────────────────────
-function drawLegend(minM, maxM) {
-  const el = document.getElementById('legend');
-  el.style.display = 'block';
-  document.getElementById('leg-min').textContent = minM + ' m';
-  document.getElementById('leg-max').textContent = maxM + ' m';
-
-  const canvas = document.getElementById('legend-bar');
-  const ctx = canvas.getContext('2d');
+function _fillBar(canvasId, colorFn) {
+  const canvas = document.getElementById(canvasId);
   const w = canvas.offsetWidth || 160;
   canvas.width = w;
+  const ctx = canvas.getContext('2d');
   for (let x = 0; x < w; x++) {
-    ctx.fillStyle = plasmaColor(x / (w - 1));
+    ctx.fillStyle = colorFn(x / (w - 1));
     ctx.fillRect(x, 0, 1, canvas.height);
   }
 }
+function drawLegend(minM, maxM) {
+  document.getElementById('legend').style.display = 'block';
+  document.getElementById('leg-min').textContent = minM + ' m';
+  document.getElementById('leg-max').textContent = maxM + ' m';
+  _fillBar('legend-bar', cmapColor);
+}
+function showSlopeLegend(visible) {
+  document.getElementById('slope-legend').style.display = visible ? 'block' : 'none';
+  if (!visible) return;
+  const { min, max } = _slopeStats;
+  _fillBar('slope-bar', x => slopeColor((min + x * (max - min)) / 45));
+  document.getElementById('slope-leg-min').textContent = min.toFixed(1) + '°';
+  document.getElementById('slope-leg-max').textContent = max.toFixed(1) + '°';
+}
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Status / progress ────────────────────────────────────────────────────────
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
-let _progressTimer = null;
-function progressStart() {
-  const bar = document.getElementById('progress-bar');
-  bar.style.transition = 'none';
-  bar.style.width = '0%';
-  bar.style.opacity = '1';
-  // Ease toward 85% over ~25 s (typical slow query), never reaching it
-  requestAnimationFrame(() => {
-    bar.style.transition = 'width 25s cubic-bezier(0.1, 0.05, 0.3, 1), opacity 0.4s ease';
-    bar.style.width = '85%';
-  });
-}
-function progressDone() {
-  const bar = document.getElementById('progress-bar');
-  bar.style.transition = 'width 0.2s ease, opacity 0.5s ease 0.25s';
-  bar.style.width = '100%';
-  setTimeout(() => { bar.style.opacity = '0'; }, 50);
-}
+const _PHASES = [3, 35, 45, 55, 63, 75, 100];
+const _tween  = { current: 0, target: 0, raf: null };
 
+function _tweenTick() {
+  const gap = _tween.target - _tween.current;
+  if (gap < 0.05) return;
+  _tween.current += gap * 0.015;
+  document.getElementById('progress-bar').style.width = _tween.current.toFixed(2) + '%';
+  _tween.raf = requestAnimationFrame(_tweenTick);
+}
+function setProgress(pct) {
+  if (_tween.raf) { cancelAnimationFrame(_tween.raf); _tween.raf = null; }
+  const bar = document.getElementById('progress-bar');
+  bar.style.opacity = '1'; bar.style.transition = 'none'; bar.style.width = pct + '%';
+  _tween.current = pct;
+  const next = _PHASES.find(p => p > pct);
+  _tween.target = next != null ? next - 0.5 : pct;
+  if (_tween.target > pct) _tween.raf = requestAnimationFrame(_tweenTick);
+}
 function setLoading(on) {
   document.getElementById('searchBtn').disabled = on;
-  if (on) progressStart(); else progressDone();
+  if (_tween.raf) { cancelAnimationFrame(_tween.raf); _tween.raf = null; }
+  const bar = document.getElementById('progress-bar');
+  if (on) {
+    bar.style.transition = 'none'; bar.style.width = '0%'; bar.style.opacity = '1';
+    _tween.current = 0;
+  } else {
+    bar.style.transition = 'width 0.2s ease, opacity 0.5s ease 0.25s';
+    bar.style.width = '100%';
+    setTimeout(() => { bar.style.opacity = '0'; }, 50);
+  }
 }
 </script>
 </body>

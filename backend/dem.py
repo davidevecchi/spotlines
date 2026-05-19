@@ -29,22 +29,20 @@ os.environ.setdefault("CPL_VSIL_CURL_ALLOWED_EXTENSIONS", ".tif")
 
 CACHE_ROOT = Path("/media/pi/WD/.cache/spotfinder")
 _DEM_DIR   = CACHE_ROOT / "dem"
-_SLOPE_DIR = CACHE_ROOT / "slope"
 
 _CRS_WGS84 = CRS.from_epsg(4326)
 
 # Italy bounding box: (south, west, north, east)
 _ITALY = (35.5, 6.6, 47.1, 18.8)
 
-_PLASMA = [
-    (0.00, (13,   8, 135)),
-    (0.25, (126,  3, 168)),
-    (0.50, (204, 71, 120)),
-    (0.75, (248, 148,  65)),
-    (1.00, (240, 249,  33)),
+_JET = [   # YlOrRd: yellow (flat) → red (steep)
+    (0.000, (255, 255, 178)),
+    (0.250, (254, 204,  92)),
+    (0.500, (253, 141,  60)),
+    (0.750, (240,  59,  32)),
+    (1.000, (189,   0,  38)),
 ]
 _MAX_SLOPE_DEG = 45.0
-_TILE_SIZE = 256
 
 
 # ── Coordinate helpers ────────────────────────────────────────────────────────
@@ -71,12 +69,6 @@ def _tile_intersects_italy(lat_f: int, lon_f: int) -> bool:
         lon_f + 1 > _ITALY[1] and lon_f < _ITALY[3]
     )
 
-
-def _pixel_size_m(west: float, south: float, east: float, north: float) -> float:
-    clat = math.radians((south + north) / 2)
-    lat_m = (north - south) * math.pi / 180 * 6_371_000
-    lon_m = (east - west) * math.pi / 180 * 6_371_000 * math.cos(clat)
-    return ((lat_m + lon_m) / 2) / _TILE_SIZE
 
 
 # ── DEM download & disk cache ─────────────────────────────────────────────────
@@ -123,9 +115,9 @@ def _download_tinitaly(lat_f: int, lon_f: int, dest: Path) -> bool:
     """Download one 1°×1° TINItaly tile via WCS and cache it. Returns True on success."""
     qs = (
         "SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage"
-        "&COVERAGEID=TINItaly_1_1_10m"
+        "&COVERAGEID=TINItaly_1_1__tinitaly_dem"
         "&SUBSETTINGCRS=EPSG:4326"
-        f"&SUBSET=Lon({float(lon_f)},{float(lon_f + 1)})"
+        f"&SUBSET=Long({float(lon_f)},{float(lon_f + 1)})"
         f"&SUBSET=Lat({float(lat_f)},{float(lat_f + 1)})"
         "&FORMAT=image/tiff"
     )
@@ -216,51 +208,80 @@ def get_elevation_at_points(
 
 # ── Slope tile serving ────────────────────────────────────────────────────────
 
-def _compute_slope(elev: np.ndarray, pixel_size_m: float) -> np.ndarray:
+def _gaussian_blur(arr: np.ndarray, sigma: float) -> np.ndarray:
+    """Separable Gaussian blur for float32 arrays; NaN-safe."""
+    radius = max(1, int(3 * sigma + 0.5))
+    x = np.arange(-radius, radius + 1, dtype=np.float32)
+    k = np.exp(-0.5 * (x / sigma) ** 2)
+    k /= k.sum()
+    nan = np.isnan(arr)
+    filled = np.where(nan, 0.0, arr)
+    weight = np.where(nan, 0.0, 1.0)
+    for axis in (0, 1):
+        filled = np.apply_along_axis(lambda r: np.convolve(r, k, mode='same'), axis, filled)
+        weight = np.apply_along_axis(lambda r: np.convolve(r, k, mode='same'), axis, weight)
+    return np.where(weight > 0, filled / weight, np.nan).astype(np.float32)
+
+
+def _compute_slope(elev: np.ndarray, dy_m: float, dx_m: float) -> np.ndarray:
+    """Return slope in degrees; dy_m/dx_m are metres per pixel in row/col directions."""
     dy, dx = np.gradient(elev)
-    dy = np.where(np.isfinite(dy), dy / pixel_size_m, 0.0)
-    dx = np.where(np.isfinite(dx), dx / pixel_size_m, 0.0)
+    dy = np.where(np.isfinite(dy), dy / dy_m, 0.0)
+    dx = np.where(np.isfinite(dx), dx / dx_m, 0.0)
     return np.degrees(np.arctan(np.sqrt(dx ** 2 + dy ** 2))).astype(np.float32)
 
 
-def _slope_to_png(slope: np.ndarray) -> bytes:
-    t = np.clip(slope / _MAX_SLOPE_DEG, 0.0, 1.0)
+def _slope_to_rgba(slope: np.ndarray) -> np.ndarray:
+    """Convert slope (degrees) to an H×W×4 uint8 RGBA array using the rainbow colourmap.
+
+    Color and alpha both use the absolute 0–45° scale (clamped above 45°).
+    Alpha: 0.1 at 0°, 0.9 at 45°+, linear — no hard cutoff.
+    """
+    t_color = np.clip(slope / _MAX_SLOPE_DEG, 0.0, 1.0)
+    t_alpha = np.clip(slope / 10.0, 0.0, 1.0)
     rgb = np.zeros((*slope.shape, 3), dtype=np.float32)
-    for seg in range(len(_PLASMA) - 1):
-        t0, c0 = _PLASMA[seg]
-        t1, c1 = _PLASMA[seg + 1]
-        mask = (t >= t0) & (t <= t1 if seg == len(_PLASMA) - 2 else t < t1)
-        f = np.where(mask, (t - t0) / (t1 - t0), 0.0)
+    for seg in range(len(_JET) - 1):
+        t0, c0 = _JET[seg]
+        t1, c1 = _JET[seg + 1]
+        mask = (t_color >= t0) & (t_color <= t1 if seg == len(_JET) - 2 else t_color < t1)
+        f = np.where(mask, (t_color - t0) / (t1 - t0), 0.0)
         for k in range(3):
             rgb[:, :, k] += np.where(mask, c0[k] + f * (c1[k] - c0[k]), 0.0)
     rgba = np.zeros((*slope.shape, 4), dtype=np.uint8)
     rgba[:, :, :3] = np.clip(rgb, 0, 255).astype(np.uint8)
-    rgba[:, :, 3] = np.where(slope < 1.0, 0, np.clip(t * 200, 0, 200)).astype(np.uint8)
+    rgba[:, :, 3] = np.round((0.05 + t_alpha * 0.45) * 255).astype(np.uint8)
+    return rgba
+
+
+def _rgba_to_png(rgba: np.ndarray) -> bytes:
     buf = io.BytesIO()
     Image.fromarray(rgba, "RGBA").save(buf, "PNG")
     return buf.getvalue()
 
 
-def _empty_tile() -> bytes:
+def _empty_image(w: int, h: int) -> bytes:
     buf = io.BytesIO()
-    Image.new("RGBA", (_TILE_SIZE, _TILE_SIZE), (0, 0, 0, 0)).save(buf, "PNG")
+    Image.new("RGBA", (w, h), (0, 0, 0, 0)).save(buf, "PNG")
     return buf.getvalue()
 
 
-def get_slope_tile(z: int, x: int, y: int) -> bytes:
-    """
-    Return slope-heatmap PNG for Leaflet tile z/x/y.
-    Reads from cached DEM tiles; result cached at CACHE_ROOT/slope/{z}/{x}/{y}.png.
-    """
-    cache_path = _SLOPE_DIR / str(z) / str(x) / f"{y}.png"
-    if cache_path.exists():
-        return cache_path.read_bytes()
 
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    west, south, east, north = tile_bbox(z, x, y)
-    pixel_size_m = _pixel_size_m(west, south, east, north)
+def _load_slope_data(
+    south: float, west: float, north: float, east: float, max_px: int,
+    blur_sigma: float = 2.0,
+) -> Optional[tuple[np.ndarray, np.ndarray, int, int]]:
+    """Load DEM tiles and compute (elev, slope, W, H), or None if no data."""
+    lat_m = (north - south) * 111_111.0
+    lon_m = (east - west) * 111_111.0 * math.cos(math.radians((south + north) / 2.0))
+    if lat_m >= lon_m:
+        H = max_px
+        W = max(1, round(max_px * lon_m / lat_m))
+    else:
+        W = max_px
+        H = max(1, round(max_px * lat_m / lon_m))
+    dy_m = lat_m / H
+    dx_m = lon_m / W
 
-    S = _TILE_SIZE
     opened: list[rasterio.DatasetReader] = []
     try:
         for lat in range(int(math.floor(south)), int(math.floor(north)) + 1):
@@ -271,29 +292,151 @@ def get_slope_tile(z: int, x: int, y: int) -> bytes:
                         opened.append(rasterio.open(p))
                     except Exception:
                         pass
-
         if not opened:
-            png = _empty_tile()
-            cache_path.write_bytes(png)
-            return png
-
+            return None
         arrays: list[np.ndarray] = []
         for ds in opened:
             win = win_from_bounds(west, south, east, north, ds.transform)
-            arr = ds.read(1, window=win, out_shape=(S, S),
-                          resampling=Resampling.bilinear).astype(np.float32)
+            arr = ds.read(1, window=win, out_shape=(H, W),
+                          resampling=Resampling.cubic_spline).astype(np.float32)
             if ds.nodata is not None:
                 arr[arr == ds.nodata] = np.nan
             arrays.append(arr)
-
         elev = np.nanmean(np.stack(arrays, axis=0), axis=0) if len(arrays) > 1 else arrays[0]
-        slope = _compute_slope(elev, pixel_size_m)
-        png = _slope_to_png(slope)
-        cache_path.write_bytes(png)
-        return png
+        if blur_sigma > 0:
+            elev = _gaussian_blur(elev, sigma=blur_sigma)
+        slope = _compute_slope(elev, dy_m, dx_m)
+        return elev, slope, W, H
     finally:
         for ds in opened:
             try:
                 ds.close()
             except Exception:
                 pass
+
+
+def get_slope_image(
+    south: float, west: float, north: float, east: float,
+    max_px: int = 1024,
+) -> bytes:
+    """Render a slope heatmap PNG covering the exact bbox."""
+    result = _load_slope_data(south, west, north, east, max_px)
+    if result is None:
+        return _empty_image(256, 256)
+    _, slope, _, _ = result
+    return _rgba_to_png(_slope_to_rgba(slope))
+
+
+def get_slope_stats(
+    south: float, west: float, north: float, east: float,
+) -> tuple[float, float]:
+    """Return (min_deg, max_deg) of slope in the bbox (at reduced resolution for speed)."""
+    result = _load_slope_data(south, west, north, east, max_px=256)
+    if result is None:
+        return 0.0, 0.0
+    _, slope, _, _ = result
+    valid = slope[np.isfinite(slope)]
+    if not len(valid):
+        return 0.0, 0.0
+    return round(float(np.min(valid)), 1), round(float(np.max(valid)), 1)
+
+
+from matplotlib import colormaps as _mpl_cmaps
+_GIST_EARTH = _mpl_cmaps['gist_earth']
+_ELEV_CMAP_LO, _ELEV_CMAP_HI = 0.22, 1.0  # skip ocean blues
+
+
+def _elev_to_rgba(elev: np.ndarray, vmin: float, vmax: float) -> np.ndarray:
+    """Map elevation array to RGBA using gist_earth (land portion) scaled to [vmin, vmax]."""
+    rng = vmax - vmin if vmax > vmin else 1.0
+    t_norm = np.clip((elev - vmin) / rng, 0.0, 1.0)
+    t_mapped = _ELEV_CMAP_LO + t_norm * (_ELEV_CMAP_HI - _ELEV_CMAP_LO)
+    rgba_f = _GIST_EARTH(t_mapped)
+    rgba = (rgba_f * 255).astype(np.uint8)
+    rgba[:, :, 3] = np.where(np.isfinite(elev), 255, 0).astype(np.uint8)
+    return rgba
+
+
+def get_elevation_image(
+    south: float, west: float, north: float, east: float,
+    max_px: int = 1024,
+) -> bytes:
+    """Render an elevation heatmap PNG using the terrain colourmap scaled to actual range."""
+    result = _load_slope_data(south, west, north, east, max_px, blur_sigma=0.0)
+    if result is None:
+        return _empty_image(256, 256)
+    elev, slope, W, H = result
+    valid = elev[np.isfinite(elev)]
+    if not len(valid):
+        return _empty_image(W, H)
+    vmin, vmax = float(np.min(valid)), float(np.max(valid))
+    elev_f = _elev_to_rgba(elev, vmin, vmax).astype(np.float32)
+    slope_f = _slope_to_rgba(slope).astype(np.float32)
+    # Alpha-composite slope over elevation; slope alpha already encodes steepness
+    a = slope_f[:, :, 3:4] / 255.0
+    blended = elev_f.copy()
+    blended[:, :, :3] = elev_f[:, :, :3] * (1.0 - a) + slope_f[:, :, :3] * a
+    return _rgba_to_png(blended.astype(np.uint8))
+
+
+def get_elevation_stats(
+    south: float, west: float, north: float, east: float,
+) -> tuple[float, float]:
+    """Return (min_m, max_m) of elevation in the bbox."""
+    result = _load_slope_data(south, west, north, east, max_px=256, blur_sigma=0.0)
+    if result is None:
+        return 0.0, 0.0
+    elev, _, _, _ = result
+    valid = elev[np.isfinite(elev)]
+    if not len(valid):
+        return 0.0, 0.0
+    return round(float(np.min(valid)), 0), round(float(np.max(valid)), 0)
+
+
+_CONTOUR_MINOR_M = 5.0
+_CONTOUR_MAJOR_M = 50.0
+_CONTOUR_MAJOR_EVERY = round(_CONTOUR_MAJOR_M / _CONTOUR_MINOR_M)  # 10
+
+
+def get_contour_svg(south: float, west: float, north: float, east: float) -> str:
+    """Return an SVG string with elevation contour polylines for the bbox."""
+    result = _load_slope_data(south, west, north, east, max_px=2048, blur_sigma=0.0)
+    _EMPTY = '<svg xmlns="http://www.w3.org/2000/svg"/>'
+    if result is None:
+        return _EMPTY
+    elev, _, W, H = result
+
+    valid = elev[np.isfinite(elev)]
+    if not len(valid):
+        return _EMPTY
+
+    lo, hi = float(np.min(valid)), float(np.max(valid))
+    level_lo = math.ceil(lo / _CONTOUR_MINOR_M) * _CONTOUR_MINOR_M
+    levels = []
+    v = level_lo
+    while v <= hi + 1e-6:
+        levels.append(round(v, 6))
+        v += _CONTOUR_MINOR_M
+    if not levels:
+        return _EMPTY
+
+    from matplotlib.figure import Figure
+    fig = Figure()
+    ax = fig.add_subplot(111)
+    cs = ax.contour(elev, levels=levels)
+
+    minor_segs, major_segs = [], []
+    for idx, segs in enumerate(cs.allsegs):
+        target = major_segs if idx % _CONTOUR_MAJOR_EVERY == 0 else minor_segs
+        for seg in segs:
+            if len(seg) < 2:
+                continue
+            target.append('<polyline points="' + ' '.join(f'{x:.1f},{y:.1f}' for x, y in seg) + '"/>')
+
+    _G = 'stroke="#A0522D" fill="none" stroke-linecap="round" stroke-linejoin="round"'
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" preserveAspectRatio="none">'
+        f'<g id="c-minor" {_G} stroke-width="2" opacity="1">{"".join(minor_segs)}</g>'
+        f'<g id="c-major" {_G} stroke-width="4" opacity="1">{"".join(major_segs)}</g>'
+        '</svg>'
+    )

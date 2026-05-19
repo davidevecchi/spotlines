@@ -8,7 +8,7 @@ from typing import Optional
 import numpy as np
 from shapely.strtree import STRtree
 
-from .geometry import EARTH_RADIUS, check_los, haversine_m, sample_terrain_types
+from .geometry import EARTH_RADIUS, check_los, haversine_m, sample_corridor, sample_terrain_types
 from .overpass import Anchor
 
 
@@ -24,6 +24,8 @@ class Pair:
     slope_deg: Optional[float] = None
     terrain_elevs: Optional[list] = None
     terrain_types: Optional[list] = None
+    corridor_terrain: Optional[dict] = None
+    corridor_features: Optional[list] = None
 
 
 def _candidates_numpy(
@@ -31,6 +33,8 @@ def _candidates_numpy(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return (ii, jj, dists) for all upper-triangle pairs within [min_m, max_m]."""
     n = len(lats)
+    if n < 2:
+        return np.array([], dtype=int), np.array([], dtype=int), np.array([])
 
     # Cheap bounding-box pre-filter to avoid building full O(N²) arrays when N is large.
     # max degrees of latitude/longitude that could be within max_m
@@ -100,12 +104,11 @@ def enumerate_pairs(
     blocking_anchor_ids: list,
     water_tree: STRtree,
     water_geoms: list,
-    anchor_tree: STRtree,   # retained for future use; not forwarded to check_los
-    anchor_geoms: list,     # retained for future use
-    anchor_ids: list[int],  # retained for future use
     clearance_m: float = 0.0,
     terrain_tree=None,
     terrain_labels: list = None,
+    features_tree=None,
+    features_data: list = None,
 ) -> list[Pair]:
     n = len(anchors)
     if n < 2:
@@ -133,11 +136,29 @@ def enumerate_pairs(
                 sample_terrain_types(a, b, terrain_tree, terrain_labels)
                 if terrain_tree is not None else None
             )
+            corr_terrain, corr_features = (
+                sample_corridor(
+                    a, b, clearance_m,
+                    features_tree, features_data or [],
+                    terrain_tree, [], terrain_labels,
+                )
+                if terrain_tree is not None else ({}, [])
+            )
             # A is always the westernmost anchor; tie-break: northernmost
             swapped = b.lon < a.lon or (b.lon == a.lon and b.lat > a.lat)
             if swapped:
                 a, b = b, a
                 if ttypes:
                     ttypes = ttypes[::-1]
-            pairs.append(Pair(a, b, dist, over_water, terrain_types=ttypes))
+                if corr_features:
+                    corr_features = [
+                        {**f, "t_start": round(1 - f["t_end"], 3), "t_end": round(1 - f["t_start"], 3)}
+                        for f in corr_features
+                    ]
+            pairs.append(Pair(
+                a, b, dist, over_water,
+                terrain_types=ttypes,
+                corridor_terrain=corr_terrain,
+                corridor_features=corr_features,
+            ))
     return pairs
