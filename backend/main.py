@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from .analysis import enumerate_pairs
 from .dem import get_slope_image, get_slope_stats, get_contour_svg, get_elevation_image, get_elevation_stats
 from .elevation import fetch_elevations
-from .geometry import build_features_index, build_spatial_indices, build_terrain_index
+from .geometry import build_all_indices
 from .overpass import fetch_osm, parse_osm
 
 app = FastAPI(title="Spotlines")
@@ -145,37 +145,22 @@ async def get_spots(
         anchors, elements, nodes_by_id, ways_by_id = parse_osm(data)
         t2 = time.perf_counter()
 
-        yield evt(f"Building spatial indices ({len(anchors)} anchors)…", 45)
+        yield evt(f"Building indices ({len(anchors)} anchors)…", 50)
         geom_cache: dict = {}
-        (blocking_tree, blocking_geoms, blocking_anchor_ids,
-         water_tree, water_geoms,
-         _anchor_tree, _anchor_geoms, _anchor_ids) = build_spatial_indices(
+        (element_tree, records,
+         terrain_tree, _terrain_geoms, terrain_labels,
+         _anchor_tree, _anchor_geoms, _anchor_ids) = build_all_indices(
             elements, nodes_by_id, ways_by_id, anchors, geom_cache,
         )
         t3 = time.perf_counter()
 
-        yield evt("Building terrain index…", 55)
-        terrain_tree, _terrain_geoms, terrain_labels = build_terrain_index(
-            elements, nodes_by_id, ways_by_id, geom_cache,
-        )
-        t4 = time.perf_counter()
-
-        yield evt("Building features index…", 60)
-        features_tree, features_data = build_features_index(
-            elements, nodes_by_id, ways_by_id, geom_cache,
-        )
-        t4b = time.perf_counter()
-
         yield evt("Enumerating slackline pairs…", 63)
         pairs = enumerate_pairs(
             anchors, min_m, max_m,
-            blocking_tree, blocking_geoms, blocking_anchor_ids,
-            water_tree, water_geoms,
+            element_tree, records,
             clearance_m=clearance_m,
             terrain_tree=terrain_tree,
             terrain_labels=terrain_labels,
-            features_tree=features_tree,
-            features_data=features_data,
         )
         t5 = time.perf_counter()
 
@@ -196,9 +181,8 @@ async def get_spots(
         print(
             f"TIMING  anchors={len(anchors)}  elements={len(elements)}  "
             f"pairs={len(features)} | "
-            f"osm={t1-t0:.2f}s  parse={t2-t1:.2f}s  spatial={t3-t2:.2f}s  "
-            f"terrain={t4-t3:.2f}s  features={t4b-t4:.2f}s  pairs={t5-t4b:.2f}s  "
-            f"elev={t6-t5:.2f}s  serial={t7-t6:.2f}s  TOTAL={t7-t0:.2f}s",
+            f"osm={t1-t0:.2f}s  parse={t2-t1:.2f}s  indices={t3-t2:.2f}s  "
+            f"pairs={t5-t3:.2f}s  elev={t6-t5:.2f}s  serial={t7-t6:.2f}s  TOTAL={t7-t0:.2f}s",
             flush=True,
         )
 

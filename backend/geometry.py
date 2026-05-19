@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Optional
 
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon
@@ -61,6 +62,32 @@ _TERRAIN_PRIORITY = {
 _POINT_BUF = 0.00002   # ~2 m in degrees
 
 
+# ---------------------------------------------------------------------------
+# Unified OSM element record
+# ---------------------------------------------------------------------------
+
+@dataclass
+class OsmRecord:
+    """One geometry emitted during the unified classification pass.
+
+    is_blocker and is_water are mutually exclusive.
+    anchor_id is non-None only for synthetic anchor trunk buffers.
+    label/category are populated for ways/relations that have a human-readable
+    identity (roads, waterways, railways, buildings, etc.).
+    """
+    geom: object
+    is_blocker: bool
+    is_water: bool
+    anchor_id: Optional[int]
+    terrain_type: Optional[str]
+    label: Optional[str]
+    category: Optional[str]
+
+
+# ---------------------------------------------------------------------------
+# Low-level geometry builders (all coords are Shapely order: lon, lat)
+# ---------------------------------------------------------------------------
+
 def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
@@ -81,10 +108,6 @@ def anchor_buffer_deg(anchor: Anchor) -> float:
                 pass
     return 0.5 / 111_111
 
-
-# ---------------------------------------------------------------------------
-# Low-level geometry builders (all coords are Shapely order: lon, lat)
-# ---------------------------------------------------------------------------
 
 def _node_pt(el: dict) -> Optional[Point]:
     if "lat" in el and "lon" in el:
@@ -149,7 +172,7 @@ def _element_geom(el: dict, etype: str, nodes_by_id: dict, ways_by_id: dict,
 
 
 # ---------------------------------------------------------------------------
-# Obstacle and water classification
+# Element classification helpers
 # ---------------------------------------------------------------------------
 
 def _classify_blocking(el: dict, etype: str, tags: dict,
@@ -249,146 +272,25 @@ def _classify_water(el: dict, etype: str, tags: dict,
     return None
 
 
-# ---------------------------------------------------------------------------
-# Spatial index construction
-# ---------------------------------------------------------------------------
+def _classify_terrain_type(tags: dict, etype: str) -> Optional[str]:
+    """Return terrain type string or None."""
+    natural = tags.get("natural")
+    landuse = tags.get("landuse")
+    waterway = tags.get("waterway")
+    leisure = tags.get("leisure")
 
-def build_spatial_indices(
-    elements: list[dict],
-    nodes_by_id: dict,
-    ways_by_id: dict,
-    anchors: list[Anchor],
-    geom_cache: dict | None = None,
-) -> tuple:
-    """
-    Returns (blocking_tree, blocking_geoms, blocking_anchor_ids,
-             water_tree, water_geoms,
-             anchor_tree, anchor_geoms, anchor_ids).
+    if natural and natural in _NATURAL_TERRAIN:
+        return _NATURAL_TERRAIN[natural]
+    if landuse and landuse in _LANDUSE_TERRAIN:
+        return _LANDUSE_TERRAIN[landuse]
+    if waterway and waterway not in WATERWAY_BLOCKING:
+        return "water"
+    if leisure and leisure in _LEISURE_TERRAIN:
+        return _LEISURE_TERRAIN[leisure]
+    if tags.get("building") and etype != "node":
+        return "urban"
+    return None
 
-    blocking_anchor_ids[i] is the anchor ID if blocking_geoms[i] is a tree
-    trunk buffer, else None.  check_los uses this to skip the two endpoints.
-    """
-    blocking_geoms: list = []
-    blocking_anchor_ids: list = []   # int | None, parallel to blocking_geoms
-    water_geoms: list = []
-
-    for el in elements:
-        tags = el.get("tags") or {}
-        if not tags:
-            continue
-        etype = el["type"]
-
-        bg = _classify_blocking(el, etype, tags, nodes_by_id, ways_by_id, geom_cache)
-        if bg is not None and not bg.is_empty:
-            blocking_geoms.append(bg)
-            blocking_anchor_ids.append(None)
-
-        wg = _classify_water(el, etype, tags, nodes_by_id, ways_by_id, geom_cache)
-        if wg is not None and not wg.is_empty:
-            water_geoms.append(wg)
-
-    # Add every tree anchor as a blocking trunk buffer so the clearance radius
-    # applies to them too.  Endpoint exclusion is handled in check_los.
-    anchor_geoms: list = []
-    anchor_ids: list[int] = []
-    for a in anchors:
-        buf = Point(a.lon, a.lat).buffer(anchor_buffer_deg(a))
-        anchor_geoms.append(buf)
-        anchor_ids.append(a.id)
-        blocking_geoms.append(buf)
-        blocking_anchor_ids.append(a.id)
-
-    blocking_tree = STRtree(blocking_geoms)
-    water_tree = STRtree(water_geoms)
-    anchor_tree = STRtree(anchor_geoms)
-
-    return (
-        blocking_tree, blocking_geoms, blocking_anchor_ids,
-        water_tree, water_geoms,
-        anchor_tree, anchor_geoms, anchor_ids,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Line-of-sight
-# ---------------------------------------------------------------------------
-
-def _shrink_line_frac(lon1: float, lat1: float, lon2: float, lat2: float,
-                      frac: float) -> LineString:
-    """Shrink line by `frac` of its length from each endpoint."""
-    nlon1 = lon1 + (lon2 - lon1) * frac
-    nlat1 = lat1 + (lat2 - lat1) * frac
-    nlon2 = lon2 - (lon2 - lon1) * frac
-    nlat2 = lat2 - (lat2 - lat1) * frac
-    return LineString([(nlon1, nlat1), (nlon2, nlat2)])
-
-
-def build_terrain_index(
-    elements: list[dict],
-    nodes_by_id: dict,
-    ways_by_id: dict,
-    geom_cache: dict | None = None,
-) -> tuple:
-    """Return (terrain_tree, terrain_geoms, terrain_type_labels)."""
-    terrain_geoms: list = []
-    terrain_labels: list[str] = []
-
-    for el in elements:
-        tags = el.get("tags") or {}
-        if not tags:
-            continue
-        etype = el["type"]
-
-        label = None
-        natural = tags.get("natural")
-        landuse = tags.get("landuse")
-        waterway = tags.get("waterway")
-        leisure = tags.get("leisure")
-
-        if natural and natural in _NATURAL_TERRAIN:
-            label = _NATURAL_TERRAIN[natural]
-        elif landuse and landuse in _LANDUSE_TERRAIN:
-            label = _LANDUSE_TERRAIN[landuse]
-        elif waterway and waterway not in WATERWAY_BLOCKING:
-            label = "water"
-        elif leisure and leisure in _LEISURE_TERRAIN:
-            label = _LEISURE_TERRAIN[leisure]
-        elif tags.get("building") and etype != "node":
-            label = "urban"
-
-        if label:
-            geom = _element_geom(el, etype, nodes_by_id, ways_by_id, geom_cache)
-            if geom is not None and not geom.is_empty:
-                terrain_geoms.append(geom)
-                terrain_labels.append(label)
-
-    return STRtree(terrain_geoms), terrain_geoms, terrain_labels
-
-
-def sample_terrain_types(
-    a: Anchor, b: Anchor,
-    terrain_tree: STRtree,
-    terrain_labels: list[str],
-    n: int = 10,
-) -> list[str]:
-    result = []
-    for i in range(n):
-        t = i / (n - 1)
-        lon = a.lon + t * (b.lon - a.lon)
-        lat = a.lat + t * (b.lat - a.lat)
-        pt = Point(lon, lat)
-        hits = terrain_tree.query(pt, predicate="intersects")
-        if not len(hits):
-            result.append("unknown")
-            continue
-        best = min(hits, key=lambda idx: _TERRAIN_PRIORITY.get(terrain_labels[idx], 50))
-        result.append(terrain_labels[best])
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Corridor feature index and sampling
-# ---------------------------------------------------------------------------
 
 def _format_tag(val: str) -> str:
     return val.replace("_", " ").capitalize()
@@ -436,33 +338,166 @@ def _feature_label_category(tags: dict) -> tuple:
     return None, None
 
 
-def build_features_index(
+# ---------------------------------------------------------------------------
+# Unified spatial index
+# ---------------------------------------------------------------------------
+
+def build_all_indices(
     elements: list[dict],
     nodes_by_id: dict,
     ways_by_id: dict,
+    anchors: list[Anchor],
     geom_cache: dict | None = None,
 ) -> tuple:
-    """Return (features_tree, features_data).
+    """Single classification pass over all OSM elements.
 
-    features_data is a list of (geom, label, category) for non-node OSM features
-    that are worth displaying in the corridor detail view.
-    features_tree is an STRtree over those geometries (or None if empty).
+    Returns:
+        element_tree  : STRtree over all OsmRecord geometries
+        records       : list[OsmRecord], indexed parallel to element_tree
+        terrain_tree  : STRtree over terrain-typed geometries only
+        terrain_geoms : list of geometries (parallel to terrain_labels)
+        terrain_labels: list[str] parallel to terrain_geoms
+        anchor_tree   : STRtree over anchor trunk buffers
+        anchor_geoms  : list of Shapely geometries
+        anchor_ids    : list[int] parallel to anchor_geoms
     """
-    features_data: list = []
+    records: list[OsmRecord] = []
+    terrain_geoms: list = []
+    terrain_labels: list[str] = []
+
     for el in elements:
         tags = el.get("tags") or {}
-        if not tags or el["type"] == "node":
+        if not tags:
             continue
-        label, category = _feature_label_category(tags)
-        if label is None:
-            continue
-        geom = _element_geom(el, el["type"], nodes_by_id, ways_by_id, geom_cache)
-        if geom is None or geom.is_empty:
-            continue
-        features_data.append((geom, label, category))
+        etype = el["type"]
 
-    features_tree = STRtree([fd[0] for fd in features_data]) if features_data else None
-    return features_tree, features_data
+        bg = _classify_blocking(el, etype, tags, nodes_by_id, ways_by_id, geom_cache)
+        wg = _classify_water(el, etype, tags, nodes_by_id, ways_by_id, geom_cache)
+        terrain_type = _classify_terrain_type(tags, etype)
+        label, category = _feature_label_category(tags) if etype != "node" else (None, None)
+
+        if bg is not None and not bg.is_empty:
+            records.append(OsmRecord(bg, True, False, None, terrain_type, label, category))
+            if terrain_type:
+                terrain_geoms.append(bg)
+                terrain_labels.append(terrain_type)
+        elif wg is not None and not wg.is_empty:
+            records.append(OsmRecord(wg, False, True, None, terrain_type, label, category))
+            if terrain_type:
+                terrain_geoms.append(wg)
+                terrain_labels.append(terrain_type)
+        elif terrain_type is not None or label is not None:
+            geom = _element_geom(el, etype, nodes_by_id, ways_by_id, geom_cache)
+            if geom is not None and not geom.is_empty:
+                records.append(OsmRecord(geom, False, False, None, terrain_type, label, category))
+                if terrain_type:
+                    terrain_geoms.append(geom)
+                    terrain_labels.append(terrain_type)
+
+    # Anchor trunk buffers — synthetic blockers, no terrain/label
+    anchor_geoms: list = []
+    anchor_ids: list[int] = []
+    for a in anchors:
+        buf = Point(a.lon, a.lat).buffer(anchor_buffer_deg(a))
+        anchor_geoms.append(buf)
+        anchor_ids.append(a.id)
+        records.append(OsmRecord(buf, True, False, a.id, None, None, None))
+
+    element_tree = STRtree([r.geom for r in records])
+    terrain_tree = STRtree(terrain_geoms) if terrain_geoms else STRtree([])
+    anchor_tree = STRtree(anchor_geoms) if anchor_geoms else STRtree([])
+
+    return (
+        element_tree, records,
+        terrain_tree, terrain_geoms, terrain_labels,
+        anchor_tree, anchor_geoms, anchor_ids,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Line-of-sight
+# ---------------------------------------------------------------------------
+
+def _shrink_line_frac(lon1: float, lat1: float, lon2: float, lat2: float,
+                      frac: float) -> LineString:
+    """Shrink line by `frac` of its length from each endpoint."""
+    nlon1 = lon1 + (lon2 - lon1) * frac
+    nlat1 = lat1 + (lat2 - lat1) * frac
+    nlon2 = lon2 - (lon2 - lon1) * frac
+    nlat2 = lat2 - (lat2 - lat1) * frac
+    return LineString([(nlon1, nlat1), (nlon2, nlat2)])
+
+
+def _clearance_deg(clearance_m: float, mid_lat: float) -> float:
+    """Convert a clearance distance in metres to degrees at the given latitude."""
+    lat_m_per_deg = 111_111.0
+    lon_m_per_deg = 111_111.0 * math.cos(math.radians(mid_lat))
+    avg = (lat_m_per_deg + lon_m_per_deg) / 2.0
+    return clearance_m / avg
+
+
+def check_los(
+    a: Anchor, b: Anchor,
+    element_tree: STRtree,
+    records: list,
+    clearance_m: float = 0.0,
+) -> tuple[bool, bool]:
+    """Return (passes, over_water).
+
+    Step 1: the full line minus 0.5 m at each end must be obstacle-free.
+    Step 2: if clearance_m > 0, the centre 80% buffered by clearance_m on each
+            side must also be obstacle-free (lateral margin check).
+    """
+    dist_m = haversine_m(a.lat, a.lon, b.lat, b.lon)
+    endpoints = (a.id, b.id)
+
+    # Step 1 — LOS along the line, excluding 0.5 m at each attachment end
+    frac_05 = min(0.5 / dist_m, 0.49) if dist_m > 1.0 else 0.0
+    los_line = _shrink_line_frac(a.lon, a.lat, b.lon, b.lat, frac_05)
+    for idx in element_tree.query(los_line, predicate="intersects"):
+        rec = records[idx]
+        if rec.is_blocker and rec.anchor_id not in endpoints:
+            return False, False
+
+    # Step 2 — lateral clearance corridor over the centre 80%
+    if clearance_m > 0:
+        mid_lat = (a.lat + b.lat) / 2.0
+        center = _shrink_line_frac(a.lon, a.lat, b.lon, b.lat, 0.1)
+        corridor = center.buffer(_clearance_deg(clearance_m, mid_lat), cap_style=2)
+        for idx in element_tree.query(corridor, predicate="intersects"):
+            rec = records[idx]
+            if rec.is_blocker and rec.anchor_id not in endpoints:
+                return False, False
+
+    full = LineString([(a.lon, a.lat), (b.lon, b.lat)])
+    over_water = any(records[idx].is_water
+                     for idx in element_tree.query(full, predicate="intersects"))
+    return True, over_water
+
+
+# ---------------------------------------------------------------------------
+# Terrain and corridor sampling
+# ---------------------------------------------------------------------------
+
+def sample_terrain_types(
+    a: Anchor, b: Anchor,
+    terrain_tree: STRtree,
+    terrain_labels: list[str],
+    n: int = 10,
+) -> list[str]:
+    result = []
+    for i in range(n):
+        t = i / (n - 1)
+        lon = a.lon + t * (b.lon - a.lon)
+        lat = a.lat + t * (b.lat - a.lat)
+        pt = Point(lon, lat)
+        hits = terrain_tree.query(pt, predicate="intersects")
+        if not len(hits):
+            result.append("unknown")
+            continue
+        best = min(hits, key=lambda idx: _TERRAIN_PRIORITY.get(terrain_labels[idx], 50))
+        result.append(terrain_labels[best])
+    return result
 
 
 def _project_bounds_to_axis(geom, line_geom) -> tuple[float, float]:
@@ -482,24 +517,25 @@ def _project_bounds_to_axis(geom, line_geom) -> tuple[float, float]:
 def sample_corridor(
     a: Anchor, b: Anchor,
     clearance_m: float,
-    features_tree,
-    features_data: list,
+    element_tree: STRtree,
+    records: list,
     terrain_tree: STRtree,
-    terrain_geoms: list,
     terrain_labels: list[str],
     n_lon: int = 10,
     n_lat: int = 5,
 ) -> tuple[dict, list]:
     """Return (corridor_terrain_pct, corridor_features).
 
-    Uses the full 100% × 2×max(clearance_m, 1) m rectangle around the line.
-    corridor_terrain_pct: {terrain_type: fraction}, sorted by descending coverage.
-    corridor_features: [{label, category, t_start, t_end}], deduplicated by (label, category).
+    Queries the same element_tree used for LOS — roads/fences that are blockers
+    but also carry a label now appear in corridor_features.
+
+    corridor_terrain_pct: {terrain_type: fraction}, sorted descending.
+    corridor_features: [{label, category, t_start, t_end}], deduped by (label, category).
     """
     line_geom = LineString([(a.lon, a.lat), (b.lon, b.lat)])
     mid_lat = (a.lat + b.lat) / 2.0
 
-    # Always use at least 1 m each side so the corridor is never degenerate.
+    # At least 1 m each side so the corridor is never degenerate.
     buf_deg = _clearance_deg(max(clearance_m, 1.0), mid_lat)
     corridor = line_geom.buffer(buf_deg, cap_style=2)
 
@@ -533,24 +569,25 @@ def sample_corridor(
         for k, v in sorted(terrain_counts.items(), key=lambda x: -x[1])
     }
 
-    # Named features via STRtree query, deduplicated by (label, category)
+    # Named features — query the unified element_tree, filter by label
     merged: dict[tuple, list] = {}
-    if features_tree is not None:
-        for idx in features_tree.query(corridor, predicate="intersects"):
-            fgeom, label, category = features_data[idx]
-            try:
-                inter = fgeom.intersection(corridor)
-                if inter.is_empty:
-                    continue
-                t_start, t_end = _project_bounds_to_axis(inter, line_geom)
-                key = (label, category)
-                if key in merged:
-                    merged[key][0] = min(merged[key][0], t_start)
-                    merged[key][1] = max(merged[key][1], t_end)
-                else:
-                    merged[key] = [t_start, t_end]
-            except Exception:
-                pass
+    for idx in element_tree.query(corridor, predicate="intersects"):
+        rec = records[idx]
+        if rec.label is None:
+            continue
+        try:
+            inter = rec.geom.intersection(corridor)
+            if inter.is_empty:
+                continue
+            t_start, t_end = _project_bounds_to_axis(inter, line_geom)
+            key = (rec.label, rec.category)
+            if key in merged:
+                merged[key][0] = min(merged[key][0], t_start)
+                merged[key][1] = max(merged[key][1], t_end)
+            else:
+                merged[key] = [t_start, t_end]
+        except Exception:
+            pass
 
     corridor_features = [
         {"label": lbl, "category": cat, "t_start": round(ts, 3), "t_end": round(te, 3)}
@@ -558,49 +595,3 @@ def sample_corridor(
     ]
 
     return corridor_terrain, corridor_features
-
-
-def _clearance_deg(clearance_m: float, mid_lat: float) -> float:
-    """Convert a clearance distance in metres to degrees, using the midpoint latitude
-    to account for the varying length of a degree of longitude."""
-    lat_m_per_deg = 111_111.0
-    lon_m_per_deg = 111_111.0 * math.cos(math.radians(mid_lat))
-    # Use the average so an isotropic buffer is applied regardless of line bearing.
-    avg = (lat_m_per_deg + lon_m_per_deg) / 2.0
-    return clearance_m / avg
-
-
-def check_los(
-    a: Anchor, b: Anchor,
-    blocking_tree: STRtree, blocking_geoms: list, blocking_anchor_ids: list,
-    water_tree: STRtree, water_geoms: list,
-    clearance_m: float = 0.0,
-) -> tuple[bool, bool]:
-    """Return (passes, over_water).
-
-    Step 1: the full line minus 0.5 m at each end must be obstacle-free.
-    Step 2: if clearance_m > 0, the centre 80% buffered by clearance_m on each
-            side must also be obstacle-free (lateral margin check).
-    """
-    dist_m = haversine_m(a.lat, a.lon, b.lat, b.lon)
-    endpoints = (a.id, b.id)
-
-    # Step 1 — LOS along the line, excluding only 0.5 m at each attachment end
-    frac_05 = min(0.5 / dist_m, 0.49) if dist_m > 1.0 else 0.0
-    los_line = _shrink_line_frac(a.lon, a.lat, b.lon, b.lat, frac_05)
-    for idx in blocking_tree.query(los_line, predicate="intersects"):
-        if blocking_anchor_ids[idx] not in endpoints:
-            return False, False
-
-    # Step 2 — lateral clearance corridor over the centre 80%
-    if clearance_m > 0:
-        mid_lat = (a.lat + b.lat) / 2.0
-        center = _shrink_line_frac(a.lon, a.lat, b.lon, b.lat, 0.1)
-        corridor = center.buffer(_clearance_deg(clearance_m, mid_lat), cap_style=2)
-        for idx in blocking_tree.query(corridor, predicate="intersects"):
-            if blocking_anchor_ids[idx] not in endpoints:
-                return False, False
-
-    full = LineString([(a.lon, a.lat), (b.lon, b.lat)])
-    over_water = len(water_tree.query(full, predicate="intersects")) > 0
-    return True, over_water
