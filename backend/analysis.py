@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
 from shapely.strtree import STRtree
 
-from .geometry import EARTH_RADIUS, OsmRecord, check_los, haversine_m, sample_corridor, sample_terrain_types
+from .geometry import EARTH_RADIUS, OsmRecord, check_los, get_corridor_features, haversine_m
 from .overpass import Anchor
 
 
@@ -23,8 +25,6 @@ class Pair:
     slope_pct: Optional[float] = None
     slope_deg: Optional[float] = None
     terrain_elevs: Optional[list] = None
-    terrain_types: Optional[list] = None
-    corridor_terrain: Optional[dict] = None
     corridor_features: Optional[list] = None
 
 
@@ -96,8 +96,7 @@ def enumerate_pairs(
     element_tree: STRtree,
     records: list,
     clearance_m: float = 0.0,
-    terrain_tree=None,
-    terrain_labels: list = None,
+    mid_lat: float = 45.0,
 ) -> list[Pair]:
     n = len(anchors)
     if n < 2:
@@ -107,38 +106,46 @@ def enumerate_pairs(
     lons = np.array([a.lon for a in anchors])
 
     ii, jj, dists = _candidates_numpy(lats, lons, min_m, max_m)
+    n_cands = len(ii)
+    if n_cands == 0:
+        return []
 
-    pairs: list[Pair] = []
-    for k in range(len(ii)):
-        a = anchors[int(ii[k])]
-        b = anchors[int(jj[k])]
-        dist = float(dists[k])
+    # ThreadPoolExecutor.map() ignores chunksize — submit one task per thread instead,
+    # each covering a contiguous slice of candidates to eliminate per-task lock overhead.
+    n_workers = min(os.cpu_count() or 1, 4)
+    chunk_size = max(1, (n_cands + n_workers - 1) // n_workers)
 
-        ok, over_water = check_los(a, b, element_tree, records, clearance_m=clearance_m)
-        if ok:
-            ttypes = (
-                sample_terrain_types(a, b, terrain_tree, terrain_labels)
-                if terrain_tree is not None else None
-            )
-            corr_terrain, corr_features = (
-                sample_corridor(a, b, clearance_m, element_tree, records, terrain_tree, terrain_labels)
-                if terrain_tree is not None else ({}, [])
-            )
-            # A is always the westernmost anchor; tie-break: northernmost
-            swapped = b.lon < a.lon or (b.lon == a.lon and b.lat > a.lat)
-            if swapped:
+    def _check_slice(start: int, end: int) -> list[Optional[Pair]]:
+        out = []
+        for k in range(start, end):
+            a = anchors[int(ii[k])]
+            b = anchors[int(jj[k])]
+            dist = float(dists[k])
+            ok, over_water = check_los(a, b, element_tree, records, clearance_m=clearance_m)
+            if not ok:
+                out.append(None)
+                continue
+            if b.lon < a.lon or (b.lon == a.lon and b.lat > a.lat):
                 a, b = b, a
-                if ttypes:
-                    ttypes = ttypes[::-1]
-                if corr_features:
-                    corr_features = [
-                        {**f, "t_start": round(1 - f["t_end"], 3), "t_end": round(1 - f["t_start"], 3)}
-                        for f in corr_features
-                    ]
-            pairs.append(Pair(
-                a, b, dist, over_water,
-                terrain_types=ttypes,
-                corridor_terrain=corr_terrain,
-                corridor_features=corr_features,
-            ))
-    return pairs
+            out.append(Pair(a, b, dist, over_water))
+        return out
+
+    slices = [(i, min(i + chunk_size, n_cands)) for i in range(0, n_cands, chunk_size)]
+    with ThreadPoolExecutor(max_workers=n_workers) as pool:
+        chunk_results = pool.map(lambda s: _check_slice(*s), slices)
+
+    return [p for chunk in chunk_results for p in chunk if p is not None]
+
+
+def compute_corridor_features(
+    pairs: list[Pair],
+    element_tree: STRtree,
+    records: list,
+    clearance_m: float,
+    mid_lat: float,
+) -> None:
+    """Populate corridor_features on each pair (deferred from enumeration; called after slope filtering)."""
+    for p in pairs:
+        p.corridor_features = get_corridor_features(
+            p.anchor_a, p.anchor_b, clearance_m, element_tree, records, mid_lat
+        )

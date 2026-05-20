@@ -11,10 +11,11 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .analysis import enumerate_pairs
+from .analysis import compute_corridor_features, enumerate_pairs
 from .dem import get_slope_image, get_slope_stats, get_contour_svg, get_elevation_image, get_elevation_stats
 from .elevation import fetch_elevations
 from .geometry import build_all_indices
+from .landuse import fill_corridor_grid, get_or_fetch_raster
 from .overpass import fetch_osm, parse_osm
 
 app = FastAPI(title="Spotlines")
@@ -97,6 +98,28 @@ async def elevation_stats_endpoint(
     return {"min_m": min_m, "max_m": max_m}
 
 
+@app.get("/landuse/image")
+async def landuse_image(
+    south: float = Query(...),
+    west: float = Query(...),
+    north: float = Query(...),
+    east: float = Query(...),
+):
+    if abs(north - south) > 0.1 or abs(east - west) > 0.1:
+        raise HTTPException(400, "Bounding box exceeds 0.1° per side")
+    loop = asyncio.get_running_loop()
+    _, raw = await loop.run_in_executor(
+        None, partial(get_or_fetch_raster, south, west, north, east)
+    )
+    if raw is None:
+        raise HTTPException(502, "osmlanduse.org unavailable")
+    return Response(
+        content=raw,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
+
+
 @app.get("/spots")
 async def get_spots(
     south: float = Query(...),
@@ -106,7 +129,7 @@ async def get_spots(
     min_m: float = Query(default=15, ge=1, le=4000),
     max_m: float = Query(default=50, ge=1, le=4000),
     water: str = Query(default="any"),
-    max_slope: float = Query(default=10, ge=0, le=90),
+    max_slope: float = Query(default=5, ge=0, le=90),
     clearance_m: float = Query(default=1, ge=0, le=50),
 ):
     if abs(north - south) > 0.1 or abs(east - west) > 0.1:
@@ -147,10 +170,10 @@ async def get_spots(
 
         yield evt(f"Building indices ({len(anchors)} anchors)…", 50)
         geom_cache: dict = {}
+        mid_lat = (south + north) / 2.0
         (element_tree, records,
-         terrain_tree, _terrain_geoms, terrain_labels,
          _anchor_tree, _anchor_geoms, _anchor_ids) = build_all_indices(
-            elements, nodes_by_id, ways_by_id, anchors, geom_cache,
+            elements, nodes_by_id, ways_by_id, anchors, geom_cache, mid_lat=mid_lat,
         )
         t3 = time.perf_counter()
 
@@ -159,8 +182,7 @@ async def get_spots(
             anchors, min_m, max_m,
             element_tree, records,
             clearance_m=clearance_m,
-            terrain_tree=terrain_tree,
-            terrain_labels=terrain_labels,
+            mid_lat=mid_lat,
         )
         t5 = time.perf_counter()
 
@@ -175,6 +197,14 @@ async def get_spots(
             pairs = [p for p in pairs if not p.over_water]
         pairs = [p for p in pairs if p.slope_deg is None or p.slope_deg <= max_slope]
 
+        if pairs:
+            yield evt(f"Building corridor features for {len(pairs)} pairs…", 80)
+            await loop.run_in_executor(
+                None,
+                partial(compute_corridor_features, pairs, element_tree, records, clearance_m, mid_lat),
+            )
+        t_grid = time.perf_counter()
+
         features = [_pair_to_feature(p) for p in pairs]
         t7 = time.perf_counter()
 
@@ -182,15 +212,18 @@ async def get_spots(
             f"TIMING  anchors={len(anchors)}  elements={len(elements)}  "
             f"pairs={len(features)} | "
             f"osm={t1-t0:.2f}s  parse={t2-t1:.2f}s  indices={t3-t2:.2f}s  "
-            f"pairs={t5-t3:.2f}s  elev={t6-t5:.2f}s  serial={t7-t6:.2f}s  TOTAL={t7-t0:.2f}s",
+            f"pairs={t5-t3:.2f}s  elev={t6-t5:.2f}s  "
+            f"grid={t_grid-t6:.2f}s  serial={t7-t_grid:.2f}s  TOTAL={t7-t0:.2f}s",
             flush=True,
         )
 
         yield (
             "data: "
-            + json.dumps({"result": {"type": "FeatureCollection", "features": features}, "pct": 100})
+            + json.dumps({"result": {"type": "FeatureCollection", "features": features}, "pct": 95})
             + "\n\n"
         )
+
+        yield evt("Done.", 100)
 
     return StreamingResponse(
         generate(),
@@ -223,8 +256,6 @@ def _pair_to_feature(p) -> dict:
             "slope_pct": p.slope_pct,
             "slope_deg": p.slope_deg,
             "terrain_elevs": p.terrain_elevs,
-            "terrain_types": p.terrain_types,
-            "corridor_terrain": p.corridor_terrain,
             "corridor_features": p.corridor_features,
         },
     }

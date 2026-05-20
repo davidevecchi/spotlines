@@ -290,7 +290,7 @@
       <div>
         <div class="field-label">Max slope</div>
         <div class="input-row">
-          <input type="number" id="maxSlope" class="mini-input" value="10" min="0" max="90" step="0.5">
+          <input type="number" id="maxSlope" class="mini-input" value="5" min="0" max="90" step="0.5">
           <span class="input-unit">°</span>
         </div>
       </div>
@@ -311,6 +311,50 @@
         <option value="only">Only</option>
         <option value="exclude">Exclude</option>
       </select>
+    </div>
+
+    <!-- Line & load -->
+    <div class="field-row" style="margin-bottom:8px">
+      <div class="field-label">Line type</div>
+      <select id="linePreset" class="mini-select" onchange="onLinePresetChange()">
+        <option value="tubular25">Tubular 25 mm</option>
+        <option value="dyneema1">Dyneema 1"</option>
+        <option value="custom">Custom</option>
+      </select>
+    </div>
+    <div id="line-custom" style="display:none;margin-bottom:8px">
+      <div style="display:flex;gap:14px;align-items:flex-end">
+        <div>
+          <div class="field-label">EA</div>
+          <div class="input-row">
+            <input type="number" id="lineEA" class="mini-input" value="150000" min="1000" step="5000">
+            <span class="input-unit">N</span>
+          </div>
+        </div>
+        <div>
+          <div class="field-label">w</div>
+          <div class="input-row">
+            <input type="number" id="lineW" class="mini-input" value="0.70" min="0.01" step="0.01">
+            <span class="input-unit">N/m</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:14px;align-items:flex-end;margin-bottom:14px">
+      <div>
+        <div class="field-label">Pre-tension</div>
+        <div class="input-row">
+          <input type="number" id="preTension" class="mini-input" value="2000" min="100" step="100">
+          <span class="input-unit">N</span>
+        </div>
+      </div>
+      <div>
+        <div class="field-label">Walker</div>
+        <div class="input-row">
+          <input type="number" id="walkerKg" class="mini-input" value="80" min="20" max="300" step="5">
+          <span class="input-unit">kg</span>
+        </div>
+      </div>
     </div>
 
     <div class="btn-row">
@@ -386,6 +430,11 @@
           <div class="layer-thumb" id="ov-names-thumb" onclick="toggleOverlay('names')">
             <div class="thumb-img" style="background:#eae6e0"></div>
             <span>Names</span>
+            <div class="thumb-check">✓</div>
+          </div>
+          <div class="layer-thumb" id="ov-landuse-thumb" onclick="toggleOverlay('landuse')">
+            <div class="thumb-img" style="background:linear-gradient(135deg,#3a8f4c 0%,#c8b820 40%,#c0522a 70%,#3a73c0 100%)"></div>
+            <span>Land use</span>
             <div class="thumb-check">✓</div>
           </div>
         </div>
@@ -468,15 +517,19 @@ map.createPane('heatmapPane');
 map.getPane('heatmapPane').style.zIndex = 401;
 map.getPane('heatmapPane').style.pointerEvents = 'none';
 
+map.createPane('landusePane');
+map.getPane('landusePane').style.zIndex = 402;
+map.getPane('landusePane').style.pointerEvents = 'none';
+
 map.createPane('contourPane');
-map.getPane('contourPane').style.zIndex = 402;
+map.getPane('contourPane').style.zIndex = 403;
 map.getPane('contourPane').style.pointerEvents = 'none';
 
 map.createPane('linesPane');
-map.getPane('linesPane').style.zIndex = 403;
+map.getPane('linesPane').style.zIndex = 404;
 
 map.createPane('selectedPane');
-map.getPane('selectedPane').style.zIndex = 404;
+map.getPane('selectedPane').style.zIndex = 405;
 
 map.createPane('markerPane');
 map.getPane('markerPane').style.zIndex = 500;
@@ -595,7 +648,9 @@ let elevLayer = null;
 let _elevStats = { min: 0, max: 0 };
 
 // Overlay toggle state
-const OV_STATE = { slope: false, elev: false, contour: false, names: false };
+const OV_STATE = { slope: false, elev: false, contour: false, names: false, landuse: false };
+
+let landuseLayer = null;
 
 function toggleOverlay(key) {
   const on = !OV_STATE[key];
@@ -612,6 +667,9 @@ function toggleOverlay(key) {
     if (on) contourLayer.addTo(map); else map.removeLayer(contourLayer);
   } else if (key === 'names') {
     if (on) labelsLayer.addTo(map); else map.removeLayer(labelsLayer);
+  } else if (key === 'landuse') {
+    if (!landuseLayer) return;
+    if (on) landuseLayer.addTo(map); else map.removeLayer(landuseLayer);
   }
 }
 
@@ -629,6 +687,17 @@ function _updateContourStrokes() {
   if (mj) mj.setAttribute('stroke-width', (3 * f).toFixed(3));
 }
 map.on('zoom', _updateContourStrokes);
+
+async function updateLanduseLayer(bbox) {
+  const wasOn = (landuseLayer && map.hasLayer(landuseLayer)) || OV_STATE.landuse;
+  if (landuseLayer) map.removeLayer(landuseLayer);
+  const url = `/landuse/image?south=${bbox.south}&west=${bbox.west}&north=${bbox.north}&east=${bbox.east}`;
+  landuseLayer = L.imageOverlay(url, [[bbox.south, bbox.west], [bbox.north, bbox.east]], {
+    opacity: 0.65, pane: 'landusePane',
+    attribution: 'Land use &copy; <a href="https://osmlanduse.org" target="_blank">osmlanduse.org</a> / HeiGIT',
+  });
+  if (wasOn) { landuseLayer.addTo(map); _setOverlayActive('landuse', true); }
+}
 
 async function updateContourLayer(bbox) {
   const wasOn = (contourLayer && map.hasLayer(contourLayer)) || OV_STATE.contour;
@@ -823,6 +892,22 @@ async function doSearch() {
           updateSlopeLayer(currentBbox);
           updateContourLayer(currentBbox);
           updateElevLayer(currentBbox);
+          updateLanduseLayer(currentBbox);
+        }
+        if (msg.landuse_update) {
+          msg.landuse_update.forEach((feat, i) => {
+            if (_currentFeatures[i]) {
+              _currentFeatures[i].properties.corridor_features = feat.properties.corridor_features;
+              if (_currentDetailPairIdx === i && _currentDetailPair) {
+                _currentDetailPair.p.corridor_features = feat.properties.corridor_features;
+                const coords = _currentDetailPair.coords;
+                document.getElementById('detail-content').innerHTML =
+                  buildDetailHtml(_currentDetailPair.p, coords);
+                _attachElevHover();
+                _updateCatenaryAt(_lastCatT);
+              }
+            }
+          });
         }
       }
     }
@@ -837,6 +922,7 @@ async function doSearch() {
 function renderResults(geojson, minM, maxM) {
   resultsLayer.clearLayers();
   _outlineGeoJson = null; _coloredGeoJson = null; _selectedLayer = null; _currentDetailCoords = null;
+  _currentFeatures = geojson.features;
   const dists  = geojson.features.map(f => f.properties.distance_m);
   const realMin = dists.length ? Math.min(...dists) : minM;
   const realMax = dists.length ? Math.max(...dists) : maxM;
@@ -868,8 +954,12 @@ function renderResults(geojson, minM, maxM) {
 
 // ── Detail panel ─────────────────────────────────────────────────────────────
 let _currentDetailPair = null;
+let _currentDetailPairIdx = -1;
+let _currentFeatures = [];   // parallel to renderResults geojson features
 let _elevMarker = null;
 let _svgCursorState = null; // shared between SVG and map hover
+let _catState = null;      // cached unloaded catenary { d, h, H0, w, EA, L0 }
+let _lastCatT  = 0.5;      // last hover fraction for re-draw on param change
 
 function _updateElevMarker(lat, lon) {
   if (!_elevMarker) {
@@ -888,15 +978,21 @@ function _removeElevMarker() {
 
 function _updateElevCursorAt(t, tooltipClientX, tooltipClientY) {
   if (!_svgCursorState || !_currentDetailPair) return;
-  const { cursorG, cLine, cDot, PL, iW, PT, iH, mn, mx, n, rng } = _svgCursorState;
+  _lastCatT = t;
+  _updateCatenaryAt(t);
+  const { cursorG, cLine, cDot, PL, iW, PT, iH, mn, mx, n, rng, smoothed } = _svgCursorState;
   const { p } = _currentDetailPair;
   const cx = (PL + t * iW).toFixed(2);
   cursorG.removeAttribute('display');
   cLine.setAttribute('x1', cx); cLine.setAttribute('x2', cx);
 
-  const idx   = Math.min(Math.round(t * (n - 1)), n - 1);
-  const elev  = (p.terrain_elevs || [])[idx];
-  const ttype = (p.terrain_types || [])[idx] || 'unknown';
+  // Interpolate on the smoothed profile for a continuous dot position
+  const fi   = t * (n - 1);
+  const lo   = Math.floor(fi), hi = Math.min(lo + 1, n - 1);
+  const frac = fi - lo;
+  const eL   = (smoothed || [])[lo], eH = (smoothed || [])[hi];
+  const elev = (eL != null && eH != null) ? eL + frac * (eH - eL) : (eL ?? eH);
+  const idx  = Math.min(Math.round(fi), n - 1);
   const distM = Math.round(p.distance_m * t);
 
   if (elev != null && rng > 0) {
@@ -908,14 +1004,7 @@ function _updateElevCursorAt(t, tooltipClientX, tooltipClientY) {
   }
 
   const tip  = document.getElementById('elev-tip');
-  const col  = TERRAIN_COLORS[ttype] || '#78716c';
-  const tlbl = TERRAIN_LABEL[ttype] || (ttype !== 'unknown' ? ttype : '');
-  const parts = [
-    `<span style="color:#a8a29e">${distM}m</span>`,
-    `<b style="color:#292524">${elev != null ? elev + 'm' : '—'}</b>`,
-  ];
-  if (tlbl) parts.push(`<span style="color:${col}">${tlbl}</span>`);
-  tip.innerHTML = parts.join(' <span style="color:rgba(180,140,90,0.4)">·</span> ');
+  tip.innerHTML = buildSelectedTooltip(p, t);
 
   if (tooltipClientX != null) {
     const tipW = tip.offsetWidth || 170;
@@ -931,6 +1020,9 @@ function _hideCursor() {
   if (_svgCursorState) _svgCursorState.cursorG.setAttribute('display', 'none');
   document.getElementById('elev-tip').style.display = 'none';
   _removeElevMarker();
+  if (_selectedLayer && _selectedLayer.getTooltip() && _currentDetailPair) {
+    _selectedLayer.setTooltipContent(buildTooltip(_currentDetailPair.p));
+  }
 }
 
 const _MAP_HOVER_PX = 12; // pixel snap distance
@@ -955,6 +1047,9 @@ function _onMapHover(e) {
 
   _updateElevCursorAt(t, e.originalEvent.clientX, e.originalEvent.clientY);
   _updateElevMarker(latA + t * (latB - latA), lonA + t * (lonB - lonA));
+  if (_selectedLayer && _selectedLayer.getTooltip()) {
+    _selectedLayer.setTooltipContent(buildSelectedTooltip(_currentDetailPair.p, t));
+  }
 }
 
 function _attachElevHover() {
@@ -976,7 +1071,8 @@ function _attachElevHover() {
   const overlay = svg.querySelector('.elev-overlay');
   if (!overlay) return;
 
-  _svgCursorState = { cursorG, cLine, cDot, PL, iW, PT, iH, mn, mx, n, rng };
+  const smoothed = _smoothElevs(_currentDetailPair.p.terrain_elevs || []);
+  _svgCursorState = { cursorG, cLine, cDot, PL, iW, PT, iH, mn, mx, n, rng, smoothed };
 
   overlay.addEventListener('mousemove', e => {
     const svgPt = svg.createSVGPoint();
@@ -1000,10 +1096,13 @@ function showDetail(p, coords, lyr) {
   _selectedLayer = lyr;
   _currentDetailCoords = coords || null;
   _currentDetailPair = { p, coords: coords || null };
+  _currentDetailPairIdx = _currentFeatures.findIndex(f => f.properties === p);
   if (lyr) _dimOthers(lyr);
+  _catState = null; _lastCatT = 0.5;
   document.getElementById('detail-content').innerHTML = buildDetailHtml(p, coords);
   document.getElementById('panel-detail').style.display = 'block';
   _attachElevHover();
+  _updateCatenaryAt(0.5);
   map.on('mousemove', _onMapHover);
   map.on('mouseout', _hideCursor);
 }
@@ -1014,7 +1113,9 @@ function closeDetail() {
   _restoreAll();
   _currentDetailCoords = null;
   _currentDetailPair = null;
+  _currentDetailPairIdx = -1;
   _svgCursorState = null;
+  _catState = null;
   _removeElevMarker();
   document.getElementById('elev-tip').style.display = 'none';
   document.getElementById('panel-detail').style.display = 'none';
@@ -1022,100 +1123,47 @@ function closeDetail() {
 }
 
 // ── Helpers: terrain colours ─────────────────────────────────────────────────
-const TERRAIN_COLORS = {
-  forest: '#166534', grassland: '#4d7c0f', farmland: '#854d0e',
-  water: '#0369a1', wetland: '#0e7490', rock: '#57534e',
-  sand: '#b45309', shrub: '#3f6212', urban: '#374151',
-  snow: '#94a3b8', unknown: '#1e293b',
-};
-const TERRAIN_LABEL = {
-  forest: 'Forest', grassland: 'Grassland', farmland: 'Farmland',
-  water: 'Water', wetland: 'Wetland', rock: 'Rock', sand: 'Sand',
-  shrub: 'Shrub', urban: 'Urban', snow: 'Snow/Ice', unknown: '',
+// OSM key → display color (no handcrafted terrain vocabulary)
+const OSM_KEY_COLORS = {
+  natural:   '#166534', landuse: '#854d0e', leisure: '#4d7c0f',
+  waterway:  '#0369a1', highway: '#6b7280', railway: '#7c3aed',
+  building:  '#92400e', amenity: '#0e7490', barrier: '#374151',
+  power:     '#d97706', man_made:'#57534e', osmlanduse: '#1e293b',
+  natural_water: '#0369a1',
 };
 
-const CATEGORY_COLORS = {
-  highway: '#6b7280', waterway: '#0ea5e9', water: '#0284c7',
-  railway: '#7c3aed', building: '#92400e', landuse: '#65a30d',
-  leisure: '#16a34a', power: '#d97706', telecom: '#ea580c',
-};
-
-// Greedy minimum-row layout for interval/Gantt chart
-function _layoutGantt(features) {
-  const rows = []; // each entry = t_end of last feature placed in that row
-  const items = [];
-  for (const f of [...features].sort((a, b) => a.t_start - b.t_start)) {
-    let placed = false;
-    for (let r = 0; r < rows.length; r++) {
-      if (rows[r] <= f.t_start - 0.01) {
-        items.push({ ...f, row: r });
-        rows[r] = f.t_end;
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) {
-      items.push({ ...f, row: rows.length });
-      rows.push(f.t_end);
-    }
-  }
-  return { items, nRows: rows.length };
+function featureColor(f) {
+  if (!f) return '#64748b';
+  return OSM_KEY_COLORS[f.category] || '#64748b';
 }
 
-function corridorTerrainBar(corridorTerrain, W) {
-  if (!corridorTerrain) return '';
-  const entries = Object.entries(corridorTerrain).filter(([k]) => k !== 'unknown');
-  if (!entries.length) return '';
-  W = W || 292;
-  const H = 14, R = 3;
-  let x = 0, rects = '', chips = '';
-  for (const [type, frac] of entries) {
-    const w = Math.round(frac * W);
-    if (w < 1) continue;
-    const col = TERRAIN_COLORS[type] || '#64748b';
-    rects += `<rect x="${x}" y="0" width="${w}" height="${H}" fill="${col}"/>`;
-    chips += `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;font-size:10px;color:#44403c">` +
-      `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${col}"></span>` +
-      `${TERRAIN_LABEL[type] || type} ${Math.round(frac * 100)}%</span>`;
-    x += w;
-  }
-  const unknownFrac = corridorTerrain['unknown'] || 0;
-  if (unknownFrac > 0 && x < W) {
-    rects += `<rect x="${x}" y="0" width="${W - x}" height="${H}" fill="#d6d3d1"/>`;
-  }
-  return `<div style="margin:6px 0 2px">` +
-    `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;border-radius:${R}px;overflow:hidden">${rects}</svg>` +
-    `<div style="margin-top:4px;line-height:1.8">${chips}</div></div>`;
+function featureLabel(f) {
+  if (!f) return '';
+  if (f.label) return f.label;
+  return f.category || '';
 }
 
-function corridorFeaturesGantt(features, distanceM, W) {
+function _escXml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Return corridor features that overlap t (0–1 along line)
+function featuresAtT(features, t) {
+  if (!features) return [];
+  return features.filter(f => f.segments && f.segments.some(s => s.t_start <= t && t <= s.t_end));
+}
+
+// Colored chips for features present in the corridor (with no position)
+function corridorFeatureChips(features) {
   if (!features || !features.length) return '';
-  W = W || 292;
-  const { items, nRows } = _layoutGantt(features);
-  if (!nRows) return '';
-  const ROW_H = 18, GAP = 3;
-  const chartH = nRows * (ROW_H + GAP) - GAP;
-  const H = chartH + 16; // room for x-axis labels
-  let bars = '';
-  for (const item of items) {
-    const x = (item.t_start * W).toFixed(1);
-    const w = Math.max(2, ((item.t_end - item.t_start) * W)).toFixed(1);
-    const y = item.row * (ROW_H + GAP);
-    const col = CATEGORY_COLORS[item.category] || '#78716c';
-    bars += `<rect x="${x}" y="${y}" width="${w}" height="${ROW_H}" fill="${col}" rx="3" opacity="0.88"/>`;
-    if (parseFloat(w) > 22) {
-      bars += `<text x="${(parseFloat(x) + parseFloat(w) / 2).toFixed(1)}" y="${y + ROW_H / 2}"` +
-        ` dy="0.35em" font-size="9" fill="white" text-anchor="middle"` +
-        ` font-family="system-ui,sans-serif" font-weight="600">${item.label}</text>`;
-    }
-  }
-  const axisY = chartH + 1;
-  const xAxis = `<line x1="0" y1="${axisY}" x2="${W}" y2="${axisY}" stroke="rgba(120,90,50,0.2)" stroke-width="1"/>` +
-    `<text x="0" y="${axisY + 11}" font-size="9" fill="#a8a29e" font-family="system-ui" text-anchor="start">0</text>` +
-    `<text x="${W}" y="${axisY + 11}" font-size="9" fill="#a8a29e" font-family="system-ui" text-anchor="end">${Math.round(distanceM)}m</text>`;
-  return `<div style="margin-top:6px">` +
-    `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="display:block;width:100%">` +
-    `${bars}${xAxis}</svg></div>`;
+  const chips = features.map(f => {
+    const col = featureColor(f);
+    const lbl = _escXml(featureLabel(f));
+    const title = f.is_blocker ? 'blocker' : f.is_water ? 'water' : f.category || '';
+    return `<span title="${title}" style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:3px;` +
+      `background:${col}22;border:1px solid ${col}66;font-size:10px;color:${col};font-weight:600;white-space:nowrap">${lbl}</span>`;
+  }).join('');
+  return `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px">${chips}</div>`;
 }
 
 function kindLabel(k) { return (k || '').replace(/_/g, ' '); }
@@ -1234,6 +1282,17 @@ function _niceTicks(lo, hi, n) {
   return ticks;
 }
 
+// Single-pass light smooth: [0.15, 0.7, 0.15], endpoints fixed
+function _smoothElevs(elevs) {
+  if (!elevs || elevs.length < 3) return elevs;
+  return elevs.map((v, i) => {
+    if (i === 0 || i === elevs.length - 1 || v == null) return v;
+    const a = elevs[i - 1], b = elevs[i + 1];
+    if (a == null || b == null) return v;
+    return 0.15 * a + 0.7 * v + 0.15 * b;
+  });
+}
+
 // Catmull-Rom spline → SVG cubic bezier path
 function catmullRomPath(pts) {
   if (!pts || pts.length < 2) return '';
@@ -1255,9 +1314,10 @@ function catmullRomPath(pts) {
 
 function elevProfileSvgCompact(elevs, elevA, elevB) {
   if (!elevs || !elevs.length) return '';
+  elevs = _smoothElevs(elevs);
   const valid = elevs.filter(e => e != null);
   if (!valid.length) return '';
-  const W = 200, H = 58, PX = 4, PY = 5, n = elevs.length;
+  const W = 200, H = 68, PX = 4, PY = 18, n = elevs.length;
   const allVals = [...valid];
   if (elevA != null) allVals.push(elevA);
   if (elevB != null) allVals.push(elevB);
@@ -1276,8 +1336,8 @@ function elevProfileSvgCompact(elevs, elevA, elevB) {
     slackLine = `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="#b45309" stroke-width="1.8" stroke-dasharray="4 2.5" opacity="0.85"/>` +
       `<circle cx="${x0}" cy="${y0}" r="2.5" fill="#b45309"/>` +
       `<circle cx="${x1}" cy="${y1}" r="2.5" fill="#b45309"/>` +
-      `<text x="${parseFloat(x0)+5}" y="${y0}" dy="0.35em" font-size="7" fill="#b45309" font-family="system-ui,sans-serif" font-weight="600">${Math.round(elevA)}m</text>` +
-      `<text x="${(parseFloat(x1)-5).toFixed(1)}" y="${y1}" dy="0.35em" font-size="7" fill="#b45309" text-anchor="end" font-family="system-ui,sans-serif" font-weight="600">${Math.round(elevB)}m</text>`;
+      `<text x="${x0}" y="${(parseFloat(y0) - 6).toFixed(2)}" text-anchor="middle" font-size="10" fill="#b45309" font-family="system-ui,sans-serif" font-weight="700">${Math.round(elevA)}m</text>` +
+      `<text x="${x1}" y="${(parseFloat(y1) - 6).toFixed(2)}" text-anchor="middle" font-size="10" fill="#b45309" font-family="system-ui,sans-serif" font-weight="700">${Math.round(elevB)}m</text>`;
   }
   return `<svg width="${W}" height="${H}" style="display:block;margin-top:5px;border-radius:3px">
     <path d="${fp}" fill="rgba(13,148,136,0.08)"/>
@@ -1285,8 +1345,10 @@ function elevProfileSvgCompact(elevs, elevA, elevB) {
     ${slackLine}</svg>`;
 }
 
-function elevSvg(terrain, elevA, elevB, terrainTypes, distance_m, W, H) {
+function elevSvg(terrain, elevA, elevB, corridorFeatures, distance_m, W, H) {
+  const corridorGrid = corridorFeatures; // renamed; reused below
   if (!terrain) return '';
+  terrain = _smoothElevs(terrain);
   const valid = terrain.filter(e => e != null);
   if (!valid.length) return '';
   W = W || 292; H = H || 160;
@@ -1305,6 +1367,11 @@ function elevSvg(terrain, elevA, elevB, terrainTypes, distance_m, W, H) {
   const niceTicks = _niceTicks(mn + 1, mx - 1, 3);
   const abRounded = [elevA, elevB].filter(v => v != null).map(v => Math.round(v));
   const allTicks = [...new Set([...niceTicks, ...abRounded])].sort((a, b) => a - b);
+  if (allTicks.length === 1) {
+    const v = allTicks[0];
+    if (v + 1 <= Math.round(mx)) allTicks.push(v + 1);
+    else allTicks.unshift(v - 1);
+  }
   for (const v of allTicks) {
     const gy = py(v).toFixed(1);
     grid    += `<line x1="${PL}" y1="${gy}" x2="${W-PR}" y2="${gy}" stroke="rgba(120,90,50,0.2)" stroke-width="1"/>`;
@@ -1324,25 +1391,21 @@ function elevSvg(terrain, elevA, elevB, terrainTypes, distance_m, W, H) {
     }
   }
 
-  // Terrain strips + band + labels
+  // Terrain strips from corridor_features segments
   let strips = '', terrainBand = '', terrainLabels = '';
-  if (terrainTypes && terrainTypes.length === n) {
-    for (let i = 0; i < n - 1; i++) {
-      const x1 = px(i), x2 = px(i + 1);
-      const col = TERRAIN_COLORS[terrainTypes[i]] || TERRAIN_COLORS.unknown;
-      strips      += `<rect x="${x1.toFixed(2)}" y="${PT}" width="${(x2-x1).toFixed(2)}" height="${iH}" fill="${col}" opacity="0.12"/>`;
-      terrainBand += `<rect x="${x1.toFixed(2)}" y="${(xAxisY+23).toFixed(1)}" width="${(x2-x1).toFixed(2)}" height="3.5" fill="${col}" opacity="0.7"/>`;
-    }
-    let i = 0;
-    while (i < n) {
-      const t = terrainTypes[i]; let j = i + 1;
-      while (j < n && terrainTypes[j] === t) j++;
-      if (t && t !== 'unknown') {
-        const cx = px((i + j - 1) / 2);
-        const col = TERRAIN_COLORS[t] || TERRAIN_COLORS.unknown;
-        terrainLabels += `<text x="${cx.toFixed(2)}" y="${(xAxisY+36).toFixed(1)}" font-size="9.5" fill="${col}" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="600">${TERRAIN_LABEL[t] || t}</text>`;
+  if (corridorGrid && corridorGrid.length) {
+    for (const feat of corridorGrid) {
+      const col = featureColor(feat);
+      for (const seg of (feat.segments || [])) {
+        const x1 = PL + seg.t_start * iW, x2 = PL + seg.t_end * iW;
+        const w  = Math.max(x2 - x1, 1);
+        strips      += `<rect x="${x1.toFixed(2)}" y="${PT.toFixed(2)}" width="${w.toFixed(2)}" height="${iH.toFixed(2)}" fill="${col}" opacity="0.08"/>`;
+        terrainBand += `<rect x="${x1.toFixed(2)}" y="${(xAxisY + 23).toFixed(1)}" width="${w.toFixed(2)}" height="3.5" fill="${col}" opacity="0.75"/>`;
+        const cx = ((x1 + x2) / 2).toFixed(2);
+        const lbl = featureLabel(feat);
+        const short = lbl.length > 18 ? lbl.slice(0, 17) + '…' : lbl;
+        terrainLabels += `<text x="${cx}" y="${(xAxisY + 36).toFixed(1)}" font-size="9" fill="${col}" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="600">${_escXml(short)}</text>`;
       }
-      i = j;
     }
   }
 
@@ -1357,9 +1420,11 @@ function elevSvg(terrain, elevA, elevB, terrainTypes, distance_m, W, H) {
   let slackLine = '';
   if (elevA != null && elevB != null) {
     const yA = py(elevA).toFixed(2), yB = py(elevB).toFixed(2);
-    slackLine = `<line x1="${PL}" y1="${yA}" x2="${(W-PR).toFixed(2)}" y2="${yB}" stroke="#b45309" stroke-width="2" stroke-dasharray="5 3" opacity="0.85"/>` +
+    const xB = (W - PR).toFixed(2);
+    slackLine =
+      `<line x1="${PL}" y1="${yA}" x2="${xB}" y2="${yB}" stroke="#b45309" stroke-width="2" stroke-dasharray="5 3" opacity="0.85"/>` +
       `<circle cx="${PL}" cy="${yA}" r="3.5" fill="#b45309"/>` +
-      `<circle cx="${(W-PR).toFixed(2)}" cy="${yB}" r="3.5" fill="#b45309"/>`;
+      `<circle cx="${xB}" cy="${yB}" r="3.5" fill="#b45309"/>`;
   }
 
   // Interactive cursor group (hidden until hover)
@@ -1368,17 +1433,26 @@ function elevSvg(terrain, elevA, elevB, terrainTypes, distance_m, W, H) {
     <circle class="elev-cursor-dot" cx="${PL}" cy="${PT + iH/2}" r="3.5" fill="#b45309" stroke="rgba(250,246,240,0.9)" stroke-width="1.5"/>
   </g>`;
 
+  // Catenary overlay (populated dynamically on hover)
+  const tY = (xAxisY + 47).toFixed(0);
+  const catOverlay =
+    `<polyline id="cat-locus" points="" fill="none" stroke="#ff6b35" stroke-width="1.5" stroke-dasharray="3 2" opacity="0.45"/>` +
+    `<polyline id="cat-line" points="" fill="none" stroke="#ff6b35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>` +
+    `<circle id="cat-walker" cx="-100" cy="-100" r="4" fill="#ff6b35" stroke="rgba(250,246,240,0.9)" stroke-width="1.5"/>` +
+    `<text id="cat-tension" x="${PL}" y="${tY}" font-size="9" fill="#a8a29e" font-family="system-ui,sans-serif"></text>`;
+
   // Transparent mouse-capture rect
   const overlay = `<rect class="elev-overlay" x="${PL}" y="${PT}" width="${iW}" height="${iH}" fill="transparent" style="cursor:crosshair"/>`;
 
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"
     data-elev="1" data-pl="${PL}" data-pr="${PR}" data-pt="${PT}" data-pb="${PB}"
-    data-iw="${iW}" data-ih="${iH}" data-mn="${mn}" data-mx="${mx}" data-n="${n}"
+    data-iw="${iW}" data-ih="${iH}" data-mn="${mn}" data-mx="${mx}" data-n="${n}" data-dist="${distance_m}"
     style="display:block;width:100%;border-radius:4px;overflow:hidden">
     ${strips}${grid}
     <path d="${fp}" fill="rgba(13,148,136,0.07)"/>
     <path d="${sp}" fill="none" stroke="#0d9488" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
     ${slackLine}
+    ${catOverlay}
     <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${xAxisY}" stroke="rgba(120,90,50,0.4)" stroke-width="1"/>
     <line x1="${PL}" y1="${xAxisY}" x2="${W-PR}" y2="${xAxisY}" stroke="rgba(120,90,50,0.4)" stroke-width="1"/>
     ${yLabels}
@@ -1388,12 +1462,34 @@ function elevSvg(terrain, elevA, elevB, terrainTypes, distance_m, W, H) {
   </svg>`;
 }
 
+function _projectOnSegment(lat, lon, latA, lonA, latB, lonB) {
+  const cosLat = Math.cos((latA + latB) / 2 * Math.PI / 180);
+  const ax = lonA * cosLat, ay = latA;
+  const bx = lonB * cosLat, by = latB;
+  const px = lon  * cosLat, py = lat;
+  const dx = bx - ax, dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return 0;
+  return Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+}
+
 function buildTooltip(p) {
   const rise = (p.elev_b != null && p.elev_a != null) ? (p.elev_b - p.elev_a) : 0;
   const dir  = p.slope_deg != null ? (rise > 0.5 ? '↗' : rise < -0.5 ? '↘' : '→') : '';
   const sdeg = p.slope_deg != null ? ` <span style="font-size:10px;font-weight:400;color:#78716c">${dir}${p.slope_deg}°</span>` : '';
   const svg  = elevProfileSvgCompact(p.terrain_elevs, p.elev_a, p.elev_b);
   return `<div class="tip-dist">${p.distance_m} m${sdeg}</div>${svg ? svg : ''}`;
+}
+
+function buildSelectedTooltip(p, t) {
+  const distFromA = Math.round(p.distance_m * t);
+  const total     = Math.round(p.distance_m);
+  const distPart  = `${distFromA}m <span style="font-weight:400">/ ${total}m</span>`;
+  const at = featuresAtT(p.corridor_features, t);
+  const terrainPart = at.length
+    ? `<span style="font-weight:400;color:#78716c">&ensp;${_escXml(featureLabel(at[0]))}</span>`
+    : '';
+  return `<div class="tip-dist">${distPart}${terrainPart}</div>`;
 }
 
 function buildDetailHtml(p, coords) {
@@ -1416,12 +1512,11 @@ function buildDetailHtml(p, coords) {
   const slopeSuffix = p.slope_deg != null
     ? ` <span style="font-size:12px;font-weight:400;color:#78716c">${sDir}${p.slope_deg}°</span>`
     : '';
-  const terrainBar = corridorTerrainBar(p.corridor_terrain);
-  const featGantt  = corridorFeaturesGantt(p.corridor_features, p.distance_m);
-  const corridorSection = (terrainBar || featGantt)
+  const feats = p.corridor_features || [];
+  const corridorSection = feats.length
     ? `<div style="margin-top:8px;border-top:1px solid rgba(180,140,90,0.15);padding-top:7px">` +
-      `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#a8a29e;margin-bottom:5px">Corridor</div>` +
-      terrainBar + featGantt + `</div>`
+      `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#a8a29e;margin-bottom:4px">In corridor</div>` +
+      corridorFeatureChips(feats) + `</div>`
     : '';
 
   return `<div class="sl-detail">
@@ -1433,7 +1528,7 @@ function buildDetailHtml(p, coords) {
       <button class="focus-btn" onclick="focusLine()">⌖ Focus</button>
     </div>
     ${bearingHtml}
-    ${elevSvg(p.terrain_elevs, p.elev_a, p.elev_b, p.terrain_types, p.distance_m)}
+    ${elevSvg(p.terrain_elevs, p.elev_a, p.elev_b, p.corridor_features, p.distance_m)}
     ${corridorSection}
     ${anchorCard('Anchor A', p.anchor_a_id, p.anchor_a_kind, p.anchor_a_tags, copyA)}
     ${anchorCard('Anchor B', p.anchor_b_id, p.anchor_b_kind, p.anchor_b_tags, copyB)}
@@ -1488,6 +1583,231 @@ function setProgress(pct) {
   _tween.target = next != null ? next - 0.5 : pct;
   if (_tween.target > pct) _tween.raf = requestAnimationFrame(_tweenTick);
 }
+// ── Elastic catenary physics ──────────────────────────────────────────────────
+
+// Elastic catenary position at natural arc-length s from start.
+// H = horizontal tension (N), V = upward reaction at s=0 (N),
+// w = weight per unit natural length (N/m), EA = axial stiffness (N).
+function _catAt(H, V, s, w, EA) {
+  if (s === 0) return { x: 0, y: 0 };
+  const T0 = Math.hypot(H, V);
+  const Vs = V - w * s;
+  const Ts = Math.hypot(H, Vs);
+  return {
+    x: H * s / EA + H / w * (Math.asinh(V / H) - Math.asinh(Vs / H)),
+    y: (V * s - w * s * s / 2) / EA + (T0 - Ts) / w,
+  };
+}
+
+// 2×2 Newton–Raphson. f(x,y) returns [r1,r2]. Returns [x,y] or null.
+function _nr2(f, x0, y0) {
+  let [x, y] = [x0, y0];
+  const d = 1e-6, eps = 1e-7;
+  for (let i = 0; i < 60; i++) {
+    const r = f(x, y);
+    if (Math.abs(r[0]) < eps && Math.abs(r[1]) < eps) return [x, y];
+    const rx = f(x + d, y), ry = f(x, y + d);
+    const J11 = (rx[0] - r[0]) / d, J12 = (ry[0] - r[0]) / d;
+    const J21 = (rx[1] - r[1]) / d, J22 = (ry[1] - r[1]) / d;
+    const det = J11 * J22 - J12 * J21;
+    if (Math.abs(det) < 1e-14) return null;
+    x -= (J22 * r[0] - J12 * r[1]) / det;
+    y -= (J11 * r[1] - J21 * r[0]) / det;
+  }
+  return null;
+}
+
+// 3×3 Newton–Raphson. f(x,y,z) returns [r1,r2,r3]. Returns [x,y,z] or null.
+function _nr3(f, x0, y0, z0) {
+  let [x, y, z] = [x0, y0, z0];
+  const d = 1e-6, eps = 1e-7;
+  for (let i = 0; i < 80; i++) {
+    const r = f(x, y, z);
+    if (r.every(v => Math.abs(v) < eps)) return [x, y, z];
+    const rx = f(x+d,y,z), ry = f(x,y+d,z), rz = f(x,y,z+d);
+    const [a,b,c]   = [(rx[0]-r[0])/d, (ry[0]-r[0])/d, (rz[0]-r[0])/d];
+    const [dd,e,ff] = [(rx[1]-r[1])/d, (ry[1]-r[1])/d, (rz[1]-r[1])/d];
+    const [g,hh,k]  = [(rx[2]-r[2])/d, (ry[2]-r[2])/d, (rz[2]-r[2])/d];
+    const det = a*(e*k-ff*hh) - b*(dd*k-ff*g) + c*(dd*hh-e*g);
+    if (Math.abs(det) < 1e-14) return null;
+    const inv = [
+      [(e*k-ff*hh)/det,  -(b*k-c*hh)/det,   (b*ff-c*e)/det],
+      [-(dd*k-ff*g)/det,  (a*k-c*g)/det,   -(a*ff-c*dd)/det],
+      [(dd*hh-e*g)/det,  -(a*hh-b*g)/det,   (a*e-b*dd)/det],
+    ];
+    const dr = inv.map(row => row[0]*r[0] + row[1]*r[1] + row[2]*r[2]);
+    x -= dr[0]; y -= dr[1]; z -= dr[2];
+  }
+  return null;
+}
+
+// Find natural length L0 and vertical reaction V0 for an unloaded catenary
+// spanning (0,0)→(span,rise) with horizontal tension H0.
+function _solveUnloaded(span, rise, H0, w, EA) {
+  const Lgeom = Math.hypot(span, rise);
+  const r = _nr2(
+    (V, L) => {
+      if (L <= 0 || H0 <= 0) return [1e9, 1e9];
+      const e = _catAt(H0, V, L, w, EA);
+      return [e.x - span, e.y - rise];
+    },
+    H0 * rise / span + w * Lgeom * 0.5,
+    Lgeom * (1 - H0 / EA),
+  );
+  return r ? { V0: r[0], L0: r[1] } : null;
+}
+
+// Solve two coupled elastic catenaries with walker at horizontal position xw (m).
+// d = span, h = rise (elev_b − elev_a), L0 = natural length, W = walker load (N).
+// Returns { pts[21], walkerPt, TA, TB } or null.
+function _solveLoaded(d, h, L0, w, EA, xw, W, H0) {
+  if (xw < 0.02 * d || xw > 0.98 * d) return null;
+  const L1i = L0 * (xw / d);
+  const Hi  = H0 || 2000;
+  // Taut-string approximation: rope slopes downward from A to walker → V1 is negative for level/near-level spans
+  const V1i = Hi * h / d - W * (d - xw) / d;
+  const res = _nr3(
+    (H, V1, L1) => {
+      if (H < 1 || L1 < 0.005 * L0 || L1 > 0.995 * L0) return [1e9, 1e9, 1e9];
+      const L2 = L0 - L1, V2 = V1 - w * L1 + W;
+      const e1 = _catAt(H, V1, L1, w, EA);
+      const e2 = _catAt(H, V2, L2, w, EA);
+      return [e1.x - xw, e2.x - (d - xw), e1.y + e2.y - h];
+    },
+    Hi, V1i, L1i,
+  );
+  if (!res) return null;
+  const [H, V1, L1] = res;
+  if (H < 0 || L1 <= 0 || L1 >= L0) return null;
+  const L2 = L0 - L1, V2 = V1 - w * L1 + W;
+  const walkerPt = _catAt(H, V1, L1, w, EA);
+
+  // Sample at every 5% of natural length (21 points)
+  const pts = [];
+  for (let i = 0; i <= 20; i++) {
+    const s = (i / 20) * L0;
+    if (s <= L1) {
+      pts.push(_catAt(H, V1, s, w, EA));
+    } else {
+      const p2 = _catAt(H, V2, s - L1, w, EA);
+      pts.push({ x: walkerPt.x + p2.x, y: walkerPt.y + p2.y });
+    }
+  }
+  return { pts, walkerPt, TA: Math.hypot(H, V1), TB: Math.hypot(H, V2 - w * L2) };
+}
+
+// Read current line params from toolbar inputs.
+function _getLineParams() {
+  const presets = {
+    tubular25: { EA: 150000, w: 0.70 },
+    dyneema1:  { EA: 1500000, w: 0.07 },
+  };
+  const preset = document.getElementById('linePreset')?.value || 'tubular25';
+  const { EA, w } = preset === 'custom'
+    ? { EA: +(document.getElementById('lineEA')?.value) || 150000,
+        w:  +(document.getElementById('lineW')?.value)  || 0.70 }
+    : (presets[preset] || presets.tubular25);
+  const H0 = +(document.getElementById('preTension')?.value) || 2000;
+  const W  = (+(document.getElementById('walkerKg')?.value) || 80) * 9.81;
+  return { EA, w, H0, W };
+}
+
+// Clear catenary overlay elements in the open SVG.
+function _clearCatenary(svg) {
+  svg = svg || document.querySelector('#detail-content svg[data-elev]');
+  if (!svg) return;
+  svg.querySelector('#cat-locus')?.setAttribute('points', '');
+  svg.querySelector('#cat-line')?.setAttribute('points', '');
+  const cw = svg.querySelector('#cat-walker');
+  if (cw) { cw.setAttribute('cx', '-100'); cw.setAttribute('cy', '-100'); }
+  const ct = svg.querySelector('#cat-tension');
+  if (ct) ct.textContent = '';
+}
+
+// Draw the walker-position locus: sample 25 walker positions across the span,
+// plot where the walker's foot would be for each position.
+function _drawLocus(svg, d, h, elevA, toSvg, W) {
+  const locus = svg.querySelector('#cat-locus');
+  if (!locus || !_catState) return;
+  const { L0, w, EA, H0 } = _catState;
+  const pts = [];
+  for (let i = 1; i <= 24; i++) {      // 24 interior positions (skip endpoints)
+    const xw = (i / 25) * d;
+    const r = _solveLoaded(d, h, L0, w, EA, xw, W, H0);
+    if (r) pts.push(toSvg(r.walkerPt.x, r.walkerPt.y));
+  }
+  locus.setAttribute('points', pts.map(p => p.join(',')).join(' '));
+}
+
+// Recompute and draw the loaded catenary with walker at horizontal fraction t.
+function _updateCatenaryAt(t) {
+  if (!_currentDetailPair) return;
+  const svg = document.querySelector('#detail-content svg[data-elev]');
+  if (!svg) return;
+
+  const p      = _currentDetailPair.p;
+  const d      = p.distance_m;
+  const h      = (p.elev_b != null && p.elev_a != null) ? p.elev_b - p.elev_a : 0;
+  const elevA  = p.elev_a ?? 0;
+  const xw     = Math.max(0.02, Math.min(0.98, t)) * d;
+
+  const PL = +svg.dataset.pl, iW = +svg.dataset.iw;
+  const PT = +svg.dataset.pt, iH = +svg.dataset.ih;
+  const mn = +svg.dataset.mn, rng = +svg.dataset.mx - mn;
+  if (rng <= 0) return;
+
+  const { EA, w, H0, W } = _getLineParams();
+
+  // Physical → SVG pixel coordinates (shared by locus and catenary)
+  const toSvg = (xm, ym) => [
+    (PL + (xm / d) * iW).toFixed(2),
+    (PT + iH - ((ym + elevA - mn) / rng) * iH).toFixed(2),
+  ];
+
+  // Recompute unloaded natural length when params or pair change; also redraw locus
+  const paramsChanged = !_catState || _catState.d !== d || _catState.h !== h ||
+    _catState.H0 !== H0 || _catState.w !== w || _catState.EA !== EA;
+  if (paramsChanged) {
+    const r = _solveUnloaded(d, h, H0, w, EA);
+    if (!r) { _clearCatenary(svg); return; }
+    _catState = { d, h, H0, w, EA, L0: r.L0 };
+    _drawLocus(svg, d, h, elevA, toSvg, W);
+  }
+
+  const result = _solveLoaded(d, h, _catState.L0, w, EA, xw, W, H0);
+  const catLine    = svg.querySelector('#cat-line');
+  const catWalker  = svg.querySelector('#cat-walker');
+  const catTension = svg.querySelector('#cat-tension');
+  if (!result) {
+    catLine?.setAttribute('points', '');
+    catWalker && (catWalker.setAttribute('cx', '-100'), catWalker.setAttribute('cy', '-100'));
+    return;
+  }
+
+  const { pts, walkerPt, TA, TB } = result;
+
+  catLine.setAttribute('points', pts.map(({ x, y }) => toSvg(x, y).join(',')).join(' '));
+  const [wx, wy] = toSvg(walkerPt.x, walkerPt.y);
+  catWalker.setAttribute('cx', wx); catWalker.setAttribute('cy', wy);
+  catTension.textContent = `T_A ${(TA / 1000).toFixed(2)} kN  ·  T_B ${(TB / 1000).toFixed(2)} kN`;
+}
+
+// Preset dropdown handler
+function onLinePresetChange() {
+  const preset = document.getElementById('linePreset').value;
+  document.getElementById('line-custom').style.display = preset === 'custom' ? 'block' : 'none';
+  _catState = null;
+  _updateCatenaryAt(_lastCatT);
+}
+
+// Re-draw on any line/load param change
+;['preTension', 'walkerKg', 'lineEA', 'lineW'].forEach(id => {
+  document.getElementById(id)?.addEventListener('input', () => {
+    _catState = null;
+    _updateCatenaryAt(_lastCatT);
+  });
+});
+
 function setLoading(on) {
   document.getElementById('searchBtn').disabled = on;
   if (_tween.raf) { cancelAnimationFrame(_tween.raf); _tween.raf = null; }
