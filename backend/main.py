@@ -11,11 +11,11 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .analysis import compute_corridor_features, enumerate_pairs
+from .analysis import compute_corridor_features, compute_corridor_landuse, enumerate_pairs, filter_landuse_blockers
 from .dem import get_slope_image, get_slope_stats, get_contour_svg, get_elevation_image, get_elevation_stats
 from .elevation import fetch_elevations
-from .geometry import build_all_indices
-from .landuse import fill_corridor_grid, get_or_fetch_raster
+from .geometry import build_all_indices, get_corridor_features
+from .landuse import get_or_fetch_raster
 from .overpass import fetch_osm, parse_osm
 
 app = FastAPI(title="Spotlines")
@@ -120,6 +120,128 @@ async def landuse_image(
     )
 
 
+@app.get("/debug/rect")
+async def debug_rect(
+    south: float = Query(...),
+    west: float = Query(...),
+    north: float = Query(...),
+    east: float = Query(...),
+):
+    """Return every classified OSM element in the bbox.
+
+    Each entry: {osm_type, osm_id, tags, is_blocker, is_water, label, category}
+    plus a summary of anchor count and record counts.
+    """
+    if abs(north - south) > 0.1 or abs(east - west) > 0.1:
+        raise HTTPException(400, "Bounding box exceeds 0.1° per side")
+    loop = asyncio.get_running_loop()
+
+    def _run():
+        data = fetch_osm(south, west, north, east)
+        anchors, elements, nodes_by_id, ways_by_id = parse_osm(data)
+        geom_cache: dict = {}
+        mid_lat = (south + north) / 2.0
+        _, records, _, _, _ = build_all_indices(
+            elements, nodes_by_id, ways_by_id, anchors, geom_cache, mid_lat=mid_lat,
+        )
+        items = []
+        for rec in records:
+            if rec.anchor_id is not None:
+                continue  # skip synthetic anchor buffers
+            items.append({
+                "osm_type": rec.osm_type,
+                "osm_id": rec.osm_id,
+                "is_blocker": rec.is_blocker,
+                "is_water": rec.is_water,
+                "label": rec.label,
+                "category": rec.category,
+                "tags": rec.tags or {},
+            })
+        return {
+            "bbox": {"south": south, "west": west, "north": north, "east": east},
+            "n_raw_elements": len(elements),
+            "n_anchors": len(anchors),
+            "n_records": len(items),
+            "records": items,
+        }
+
+    result = await loop.run_in_executor(None, _run)
+    return result
+
+
+@app.get("/debug/corridor")
+async def debug_corridor(
+    node_a: int = Query(...),
+    node_b: int = Query(...),
+    clearance_m: float = Query(default=1.0, ge=0, le=50),
+    fetch_pad_m: float = Query(default=30.0, ge=5, le=200),
+):
+    """Return corridor feature segments for a pair of OSM node IDs.
+
+    Fetches a small bbox around the two nodes, classifies OSM elements,
+    then runs get_corridor_features and returns the result.
+    """
+    import requests as _req
+
+    loop = asyncio.get_running_loop()
+
+    def _run():
+        # Fetch both nodes from the OSM API
+        def _fetch_node(nid):
+            r = _req.get(
+                f"https://api.openstreetmap.org/api/0.6/node/{nid}.json",
+                timeout=20, headers={"User-Agent": "Spotlines/1.0"},
+            )
+            r.raise_for_status()
+            el = r.json()["elements"][0]
+            return el["lon"], el["lat"], el.get("tags", {})
+
+        lon_a, lat_a, tags_a = _fetch_node(node_a)
+        lon_b, lat_b, tags_b = _fetch_node(node_b)
+
+        import math
+        mid_lat = (lat_a + lat_b) / 2.0
+        pad_lat = fetch_pad_m / 111_000
+        pad_lon = fetch_pad_m / (111_000 * max(math.cos(math.radians(mid_lat)), 0.001))
+        south = min(lat_a, lat_b) - pad_lat
+        north = max(lat_a, lat_b) + pad_lat
+        west  = min(lon_a, lon_b) - pad_lon
+        east  = max(lon_a, lon_b) + pad_lon
+
+        data = fetch_osm(south, west, north, east)
+        anchors, elements, nodes_by_id, ways_by_id = parse_osm(data)
+        geom_cache: dict = {}
+        element_tree, records, _, _, _ = build_all_indices(
+            elements, nodes_by_id, ways_by_id, anchors, geom_cache, mid_lat=mid_lat,
+        )
+
+        from .overpass import Anchor
+        a = Anchor(node_a, lat_a, lon_a, tags_a, "node")
+        b = Anchor(node_b, lat_b, lon_b, tags_b, "node")
+
+        feats = get_corridor_features(a, b, clearance_m, element_tree, records, mid_lat)
+
+        dist_m = math.sqrt(
+            ((lon_b - lon_a) * 111_000 * math.cos(math.radians(mid_lat))) ** 2
+            + ((lat_b - lat_a) * 111_000) ** 2
+        )
+
+        return {
+            "node_a": {"id": node_a, "lon": lon_a, "lat": lat_a, "tags": tags_a},
+            "node_b": {"id": node_b, "lon": lon_b, "lat": lat_b, "tags": tags_b},
+            "distance_m": round(dist_m, 1),
+            "clearance_m": clearance_m,
+            "n_features": len(feats),
+            "features": feats,
+        }
+
+    try:
+        result = await loop.run_in_executor(None, _run)
+    except Exception as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return result
+
+
 @app.get("/spots")
 async def get_spots(
     south: float = Query(...),
@@ -156,7 +278,7 @@ async def get_spots(
             while not fetch_future.done():
                 await asyncio.sleep(1)
                 elapsed = time.perf_counter() - t_fetch
-                yield "data: " + json.dumps({"status": f"Querying Overpass API… ({elapsed:.0f}s)"}) + "\n\n"
+                yield "data: " + json.dumps({"status": f"Querying Overpass API… ({elapsed:.0f}s)", "pct": 3}) + "\n\n"
             data = fetch_future.result()
         except RuntimeError as exc:
             yield "data: " + json.dumps({"error": str(exc)}) + "\n\n"
@@ -169,7 +291,7 @@ async def get_spots(
         t2 = time.perf_counter()
 
         yield evt(f"Building indices ({len(anchors)} anchors)…", 50)
-        geom_cache: dict = {}
+        geom_cache: dict[tuple[str, int], object] = {}
         mid_lat = (south + north) / 2.0
         (element_tree, records,
          _anchor_tree, _anchor_geoms, _anchor_ids) = build_all_indices(
@@ -199,10 +321,11 @@ async def get_spots(
 
         if pairs:
             yield evt(f"Building corridor features for {len(pairs)} pairs…", 80)
-            await loop.run_in_executor(
-                None,
-                partial(compute_corridor_features, pairs, element_tree, records, clearance_m, mid_lat),
+            await asyncio.gather(
+                loop.run_in_executor(None, partial(compute_corridor_features, pairs, element_tree, records, clearance_m, mid_lat)),
+                loop.run_in_executor(None, partial(compute_corridor_landuse, pairs, south, west, north, east)),
             )
+            pairs = filter_landuse_blockers(pairs)
         t_grid = time.perf_counter()
 
         features = [_pair_to_feature(p) for p in pairs]

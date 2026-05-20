@@ -264,7 +264,6 @@
     /* Hide default attribution Leaflet controls that conflict */
     .leaflet-top.leaflet-left { top: 10px; left: 280px; }
     .leaflet-top.leaflet-right { top: 10px; right: 60px; }
-    .landuse-crisp img { image-rendering: pixelated; }
   </style>
 </head>
 <body>
@@ -664,7 +663,18 @@ let _elevStats = { min: 0, max: 0 };
 // Overlay toggle state
 const OV_STATE = { slope: false, elev: false, contour: false, names: false, landuse: false };
 
-let landuseLayer = null;
+// Landuse: direct WMS tile layer — combined (satellite fills OSM gaps) with
+// the original OSM layer rendered on top so tagged data always takes priority.
+const landuseLayer = L.tileLayer.wms('https://maps.heigit.org/osmlanduse/wms', {
+  layers: 'osmlanduse:osm_lulc_combined_osm4eo,osmlanduse:osm_lulc',
+  styles: '',
+  format: 'image/png',
+  transparent: true,
+  version: '1.1.1',
+  opacity: 0.65,
+  pane: 'landusePane',
+  attribution: 'Land use &copy; <a href="https://osmlanduse.org" target="_blank">osmlanduse.org</a> / HeiGIT',
+});
 
 function toggleOverlay(key) {
   const on = !OV_STATE[key];
@@ -682,7 +692,6 @@ function toggleOverlay(key) {
   } else if (key === 'names') {
     if (on) labelsLayer.addTo(map); else map.removeLayer(labelsLayer);
   } else if (key === 'landuse') {
-    if (!landuseLayer) return;
     if (on) landuseLayer.addTo(map); else map.removeLayer(landuseLayer);
   }
 }
@@ -702,16 +711,12 @@ function _updateContourStrokes() {
 }
 map.on('zoom', _updateContourStrokes);
 
-async function updateLanduseLayer(bbox) {
-  const wasOn = (landuseLayer && map.hasLayer(landuseLayer)) || OV_STATE.landuse;
-  if (landuseLayer) map.removeLayer(landuseLayer);
-  const url = `/landuse/image?south=${bbox.south}&west=${bbox.west}&north=${bbox.north}&east=${bbox.east}`;
-  landuseLayer = L.imageOverlay(url, [[bbox.south, bbox.west], [bbox.north, bbox.east]], {
-    opacity: 0.65, pane: 'landusePane',
-    attribution: 'Land use &copy; <a href="https://osmlanduse.org" target="_blank">osmlanduse.org</a> / HeiGIT',
-    className: 'landuse-crisp',
-  });
-  if (wasOn) { landuseLayer.addTo(map); _setOverlayActive('landuse', true); }
+function updateLanduseLayer(_bbox) {
+  // WMS tile layer covers the whole map — no per-bbox refresh needed.
+  // Restore visibility if it was on before the search.
+  if (OV_STATE.landuse && !map.hasLayer(landuseLayer)) {
+    landuseLayer.addTo(map);
+  }
 }
 
 async function updateContourLayer(bbox) {
@@ -726,7 +731,7 @@ async function updateContourLayer(bbox) {
     _contourSvgEl = new DOMParser().parseFromString(svgText, 'image/svg+xml').documentElement;
     _contourZ0 = map.getZoom();
     contourLayer = L.svgOverlay(_contourSvgEl, [[bbox.south, bbox.west], [bbox.north, bbox.east]], { interactive: false, pane: 'contourPane' });
-    if (wasOn) { contourLayer.addTo(map); _setOverlayActive('contour', true); }
+    if (wasOn || OV_STATE.contour) { contourLayer.addTo(map); _setOverlayActive('contour', true); }
   } catch {}
 }
 
@@ -995,13 +1000,13 @@ function _updateElevCursorAt(t, tooltipClientX, tooltipClientY) {
   if (!_svgCursorState || !_currentDetailPair) return;
   _lastCatT = t;
   _updateCatenaryAt(t);
-  const { cursorG, cLine, cDot, padLeft, innerW, padTop, innerH, minElev, elevRange, n, smoothed } = _svgCursorState;
+  const { cursorG, cLine, cDot, padLeft, innerW, padTop, innerH, minElev, maxElev, n, smoothed } = _svgCursorState;
+  const elevRange = maxElev - minElev;
   const { p } = _currentDetailPair;
   const cx = (padLeft + t * innerW).toFixed(2);
   cursorG.removeAttribute('display');
   cLine.setAttribute('x1', cx); cLine.setAttribute('x2', cx);
 
-  // Interpolate on the smoothed profile for a continuous dot position
   const fi   = t * (n - 1);
   const lo   = Math.floor(fi), hi = Math.min(lo + 1, n - 1);
   const frac = fi - lo;
@@ -1083,8 +1088,7 @@ function _attachElevHover() {
   if (!svg) return;
 
   const { padLeft, innerW, padTop, innerH, minElev, maxElev } = _svgDims(svg);
-  const n        = +svg.dataset.n;
-  const elevRange = maxElev - minElev;
+  const n = +svg.dataset.n;
 
   const cursorG = svg.querySelector('.elev-cursor');
   const cLine   = svg.querySelector('.elev-cursor-line');
@@ -1093,7 +1097,7 @@ function _attachElevHover() {
   if (!overlay) return;
 
   const smoothed = _smoothElevs(_currentDetailPair.p.terrain_elevs || []);
-  _svgCursorState = { cursorG, cLine, cDot, padLeft, innerW, padTop, innerH, minElev, maxElev, n, elevRange, smoothed };
+  _svgCursorState = { cursorG, cLine, cDot, padLeft, innerW, padTop, innerH, minElev, maxElev, n, smoothed };
 
   overlay.addEventListener('mousemove', e => {
     const svgPt = svg.createSVGPoint();
@@ -1146,11 +1150,15 @@ function closeDetail() {
 // ── Helpers: terrain colours ─────────────────────────────────────────────────
 // OSM key → display color (no handcrafted terrain vocabulary)
 const OSM_KEY_COLORS = {
-  natural:   '#166534', landuse: '#854d0e', leisure: '#4d7c0f',
-  waterway:  '#0369a1', highway: '#6b7280', railway: '#7c3aed',
-  building:  '#92400e', amenity: '#0e7490', barrier: '#374151',
-  power:     '#d97706', man_made:'#57534e', osmlanduse: '#1e293b',
-  natural_water: '#0369a1',
+  natural:          '#166534', landuse:          '#854d0e', leisure:    '#4d7c0f',
+  waterway:         '#0369a1', highway:          '#6b7280', railway:    '#7c3aed',
+  building:         '#92400e', amenity:          '#0e7490', barrier:    '#374151',
+  power:            '#d97706', man_made:         '#57534e', telecom:    '#0891b2',
+  aeroway:          '#475569', craft:            '#a16207', emergency:  '#dc2626',
+  healthcare:       '#0d9488', historic:         '#b45309', military:   '#365314',
+  office:           '#6d28d9', public_transport: '#2563eb', shop:       '#db2777',
+  tourism:          '#ea580c', wastewater:       '#4b5563',
+  osmlanduse: '#1e293b', natural_water: '#0369a1',
 };
 
 function featureColor(f) {
@@ -1174,18 +1182,6 @@ function featuresAtT(features, t) {
   return features.filter(f => f.segments && f.segments.some(s => s.t_start <= t && t <= s.t_end));
 }
 
-// Colored chips for features present in the corridor (with no position)
-function corridorFeatureChips(features) {
-  if (!features || !features.length) return '';
-  const chips = features.map(f => {
-    const col = featureColor(f);
-    const lbl = _escXml(featureLabel(f));
-    const title = f.is_blocker ? 'blocker' : f.is_water ? 'water' : f.category || '';
-    return `<span title="${title}" style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:3px;` +
-      `background:${col}22;border:1px solid ${col}66;font-size:10px;color:${col};font-weight:600;white-space:nowrap">${lbl}</span>`;
-  }).join('');
-  return `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px">${chips}</div>`;
-}
 
 function kindLabel(k) { return (k || '').replace(/_/g, ' '); }
 
@@ -1508,6 +1504,33 @@ function buildSelectedTooltip(p, t) {
   return `<div class="tip-dist">${distPart}${terrainPart}</div>`;
 }
 
+function buildCorridorFeatureList(feats, distance_m) {
+  if (!feats || !feats.length) return '';
+  let rows = '';
+  for (const f of feats) {
+    const col = featureColor(f);
+    const segs = (f.segments || []).map(s => {
+      const t0 = s.t_start, t1 = s.t_end;
+      const m0 = Math.round(t0 * distance_m), m1 = Math.round(t1 * distance_m);
+      const barX = (t0 * 100).toFixed(1), barW = Math.max((t1 - t0) * 100, 0.5).toFixed(1);
+      return `<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:#57534e;margin-top:1px">` +
+        `<div style="position:relative;flex:1;height:5px;background:rgba(180,140,90,0.15);border-radius:2px;overflow:hidden">` +
+        `<div style="position:absolute;left:${barX}%;width:${barW}%;height:100%;background:${col};opacity:0.75;border-radius:2px"></div></div>` +
+        `<span style="white-space:nowrap;font-variant-numeric:tabular-nums">${m0}–${m1} m</span></div>`;
+    }).join('');
+    const flagBlocker = f.is_blocker ? '<span style="color:#dc2626;font-size:9px;margin-left:4px">blocker</span>' : '';
+    const flagWater   = f.is_water   ? '<span style="color:#0369a1;font-size:9px;margin-left:4px">water</span>'   : '';
+    const noSegs = (!f.segments || !f.segments.length)
+      ? `<div style="font-size:10px;color:#a8a29e;margin-top:1px">buffer zone only</div>` : '';
+    rows += `<div style="margin-bottom:5px">` +
+      `<div style="font-size:10px;font-weight:600;color:${col}">${_escXml(featureLabel(f))}` +
+      `<span style="color:#a8a29e;font-weight:400;font-size:9px;margin-left:4px">${_escXml(f.category||'')}</span>` +
+      flagBlocker + flagWater + `</div>` +
+      segs + noSegs + `</div>`;
+  }
+  return `<div style="margin-top:4px;padding:7px 8px;background:rgba(0,0,0,0.03);border-radius:5px;border:1px solid rgba(180,140,90,0.15)">${rows}</div>`;
+}
+
 function buildDetailHtml(p, coords) {
   const water = p.over_water ? '<span class="water-tag">Water crossing</span>' : '';
 
@@ -1532,7 +1555,7 @@ function buildDetailHtml(p, coords) {
   const corridorSection = feats.length
     ? `<div style="margin-top:8px;border-top:1px solid rgba(180,140,90,0.15);padding-top:7px">` +
       `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#a8a29e;margin-bottom:4px">In corridor</div>` +
-      corridorFeatureChips(feats) + `</div>`
+      buildCorridorFeatureList(feats, p.distance_m) + `</div>`
     : '';
 
   return `<div class="sl-detail">

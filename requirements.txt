@@ -3,6 +3,7 @@ uvicorn[standard]
 requests
 shapely>=2.0
 numpy
+scipy
 rasterio
 Pillow
 matplotlib

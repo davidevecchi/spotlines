@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from threading import Lock
 
 import requests
+from . import feature_map as _fm
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 _CACHE: dict = {}
+_CACHE_LOCK = Lock()
 _CACHE_TTL = 300  # seconds
 
 
@@ -23,13 +26,14 @@ class Anchor:
 def fetch_osm(south: float, west: float, north: float, east: float) -> dict:
     key = f"{south:.5f},{west:.5f},{north:.5f},{east:.5f}"
     now = time.time()
-    cached = _CACHE.get(key)
-    if cached and now - cached["ts"] < _CACHE_TTL:
-        return cached["data"]
 
-    # Prune expired entries on each write to prevent unbounded growth
-    for k in [k for k, v in _CACHE.items() if now - v["ts"] >= _CACHE_TTL]:
-        del _CACHE[k]
+    with _CACHE_LOCK:
+        cached = _CACHE.get(key)
+        if cached and now - cached["ts"] < _CACHE_TTL:
+            return cached["data"]
+        # Prune expired entries on each write to prevent unbounded growth
+        for k in [k for k, v in _CACHE.items() if now - v["ts"] >= _CACHE_TTL]:
+            del _CACHE[k]
 
     query = _build_query(south, west, north, east)
     try:
@@ -44,21 +48,23 @@ def fetch_osm(south: float, west: float, north: float, east: float) -> dict:
         raise RuntimeError(str(exc)) from exc
 
     data = resp.json()
-    _CACHE[key] = {"ts": now, "data": data}
+    with _CACHE_LOCK:
+        _CACHE[key] = {"ts": time.time(), "data": data}
     return data
 
 
 def _build_query(south: float, west: float, north: float, east: float) -> str:
     b = f"{south},{west},{north},{east}"
-    # FUTURE: enable additional anchor sources by uncommenting:
-    #   node[natural~"^(arch|arete|bare_rock|cave_entrance|cliff|rock|stone)$"]({b});  # geological
-    #   nwr[natural~"^(wood|tree_row)$"]({b});                                          # tree_row
-    #   nwr[landuse=forest]({b});                                                       # forest_edge
-    #   way[barrier=guard_rail]({b});                                                   # guard_rail
+    # Build natural value filter from the feature map; always include tree.
+    _nat_vals = sorted(_fm.DATA.get("natural", {}).keys())
+    if "tree" not in _nat_vals:
+        _nat_vals.insert(0, "tree")
+    _nat_re = "|".join(_nat_vals)
     return f"""[out:json][timeout:60];
 (
   node[natural=tree]({b});
-  nwr[natural~"^(wood|tree_row|water)$"]({b});
+  nwr[natural~"^({_nat_re})$"]({b});
+  nwr[aerialway]({b});
   nwr[aeroway]({b});
   nwr[amenity]({b});
   nwr[barrier]({b});
@@ -68,7 +74,6 @@ def _build_query(south: float, west: float, north: float, east: float) -> str:
   nwr[healthcare]({b});
   way[highway]({b});
   nwr[historic]({b});
-  nwr[landuse]({b});
   nwr[leisure]({b});
   nwr[man_made]({b});
   nwr[military]({b});
@@ -114,26 +119,24 @@ def _parse_anchors(
     nodes_by_id: dict[int, dict],
     ways_by_id: dict[int, dict],
 ) -> list[Anchor]:
+    """Extract anchor points from OSM elements.
+
+    Currently only tree nodes are supported.  Planned future anchor types:
+      - geological nodes (arch, arete, bare_rock, cave_entrance, cliff, rock, stone)
+      - way-derived: tree_row, guard_rail, forest_edge (node per way-node)
+      - relation-derived: forest_edge (outer-member way nodes)
+    Each would require extending _build_query and adding a pass here.
+    """
     anchors: list[Anchor] = []
     seen: set[int] = set()
 
-    # Pass 1: tree nodes only
     for el in elements:
         if el["type"] != "node":
             continue
         tags = el.get("tags") or {}
-        nat = tags.get("natural", "")
         nid = el["id"]
-        if nat == "tree" and nid not in seen:
+        if tags.get("natural") == "tree" and nid not in seen:
             anchors.append(Anchor(nid, el["lat"], el["lon"], tags, "tree"))
             seen.add(nid)
-        # FUTURE: geological — elif nat in {"arch","arete","bare_rock","cave_entrance","cliff","rock","stone"} and nid not in seen: ...
-
-    # FUTURE: Pass 2 — way-derived anchors (tree_row, guard_rail, forest_edge)
-    # Each: iterate elements for the matching tag, then iterate el["nodes"] to emit one Anchor per node.
-    # Kinds: "tree_row", "guard_rail", "forest_edge"
-
-    # FUTURE: Pass 3 — relation-derived forest_edge anchors
-    # Iterate relation members of role "outer"/"", collect their way nodes as forest_edge anchors.
 
     return anchors

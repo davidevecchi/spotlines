@@ -10,75 +10,48 @@ Defaults:
     --fetch     fetch radius around line in metres             default: 20
 """
 
-import argparse, math, sys, json, urllib.parse
+import argparse, math, sys, json, urllib.parse, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import requests
 from shapely.geometry import LineString, Point, Polygon, MultiPolygon, GeometryCollection
 from shapely.ops import transform
 import pyproj
 
-# ── Width inference ───────────────────────────────────────────────────────────
+from backend.geometry import HIGHWAY_W, BARRIER_W, RAILWAY_W, infer_width as _infer_width
 
-HIGHWAY_W = {
-    "motorway": 15.0, "motorway_link": 6.0,
-    "trunk": 12.0,    "trunk_link": 5.0,
-    "primary": 9.0,   "primary_link": 4.0,
-    "secondary": 7.5, "secondary_link": 4.0,
-    "tertiary": 6.0,  "tertiary_link": 3.5,
-    "unclassified": 5.5, "residential": 5.5,
-    "living_street": 4.5, "service": 4.0,
-    "pedestrian": 5.0, "track": 3.0,
-    "cycleway": 1.8, "footway": 1.5, "path": 1.0,
-    "bridleway": 2.0, "steps": 2.0, "crossing": 4.0,
-}
-BARRIER_W = {
-    "fence": 0.1, "wall": 0.5, "hedge": 1.5,
-    "guard_rail": 0.3, "kerb": 0.1, "gate": 0.1,
-    "bollard": 0.2, "block": 0.5,
-}
-RAILWAY_W = {
-    "rail": 1.7, "light_rail": 1.5, "tram": 1.4,
-    "subway": 1.5, "narrow_gauge": 1.0,
-}
-LANE_W = 3.25  # standard European lane width (m)
+_LANE_W = 3.25  # standard European lane width (m)
 
 
 def infer_width(tags):
-    """Return (total_width_m, source_note)."""
+    """Return (total_width_m, source_note) — delegates to backend.geometry.infer_width."""
+    w = _infer_width(tags)
+    # Derive a source note for diagnostic output
     if "width" in tags:
-        try:
-            return float(tags["width"]), f"width={tags['width']}"
-        except ValueError:
-            pass
+        return w, f"width={tags['width']}"
     hw = tags.get("highway", "")
     if "lanes" in tags and hw:
-        try:
-            w = float(tags["lanes"]) * LANE_W
-            if hw not in ("footway", "path", "cycleway", "steps", "crossing"):
-                w += 2.0
-            return w, f"lanes={tags['lanes']}x{LANE_W}+shoulders"
-        except ValueError:
-            pass
+        return w, f"lanes={tags['lanes']}x{_LANE_W}+shoulders"
     if hw in HIGHWAY_W:
-        return HIGHWAY_W[hw], f"highway={hw}"
+        return w, f"highway={hw}"
     b = tags.get("barrier", "")
     if b in BARRIER_W:
-        return BARRIER_W[b], f"barrier={b}"
+        return w, f"barrier={b}"
     r = tags.get("railway", "")
     if r in RAILWAY_W:
-        return RAILWAY_W[r], f"railway={r}"
+        return w, f"railway={r}"
     if "building" in tags:
-        return 0.0, "building polygon"
+        return w, "building polygon"
     if tags.get("power") in ("line", "minor_line", "cable"):
-        return 0.5, "power line"
+        return w, "power line"
     if tags.get("natural") == "tree":
         try:
-            radius = max(float(tags.get("circumference", 0)) / (2 * math.pi), 0.5)
+            radius = max(float(tags.get("circumference", 0)) / (2 * math.pi), 0.3)
         except (ValueError, TypeError):
-            radius = 0.5
-        return radius * 2, f"tree r={radius:.2f}m"
+            radius = 0.3
+        return w, f"tree r={radius:.2f}m"
     if any(k in tags for k in ("amenity", "man_made", "emergency")):
-        return 1.0, "node obstacle"
-    return 0.2, "default"
+        return w, "node obstacle"
+    return w, "default"
 
 
 # ── OSM fetch ─────────────────────────────────────────────────────────────────
@@ -107,9 +80,9 @@ out body; >; out skel qt;"""
 def anchor_radius(tags):
     """Physical radius of an anchor node in metres."""
     try:
-        return max(float(tags.get("circumference", 0)) / (2 * math.pi), 0.5)
+        return max(float(tags.get("circumference", 0)) / (2 * math.pi), 0.3)
     except (ValueError, TypeError):
-        return 0.5
+        return 0.3
 
 
 def make_corridor(line_utm, half_width, shrink_a=0.0, shrink_b=0.0):

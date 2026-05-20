@@ -35,20 +35,25 @@ _lock = Lock()
 # Exact colours extracted from the WMS GetLegendGraphic PNG, mapped to short
 # lowercase type labels consistent with existing OSM-based obs entries.
 
+_ALLOWED: frozenset[str] = frozenset({
+    "arable", "forest", "park", "meadow", "scrub",
+    "water", "bare", "wetland", "coastal_wetland",
+})
+
 _PALETTE: list[tuple[tuple[int, int, int], str]] = [
-    ((230,   0,  77), "urban"),          # Urban fabric
-    ((255, 255, 168), "farmland"),        # Arable land
+    ((230,   0,  77), "urban"),           # Urban fabric
+    ((255, 255, 168), "arable"),          # Arable land
     (( 77, 255,   0), "forest"),          # Forests
     ((204,  77, 242), "industrial"),      # Industrial, commercial and transport units
     ((255, 166, 255), "park"),            # Artificial, non-agricultural vegetated areas
     ((166,   0, 204), "quarry"),          # Mine, dump and construction sites
     ((230, 230,  77), "meadow"),          # Pastures
-    ((230, 128,   0), "farmland"),        # Permanent crops
+    ((230, 128,   0), "permanent_crops"), # Permanent crops
     ((  0, 204, 242), "water"),           # Water bodies
     ((230, 230, 230), "bare"),            # Open spaces with little or no vegetation
     ((204, 242,  77), "scrub"),           # Shrub and/or herbaceous vegetation associations
     ((166, 166, 255), "wetland"),         # Wetlands
-    ((230, 230, 255), "wetland"),         # Coastal wetlands
+    ((230, 230, 255), "coastal_wetland"), # Coastal wetlands
 ]
 
 _MAX_DIST = 30   # pixels further than this from all legend colours are unclassified
@@ -113,37 +118,67 @@ def get_or_fetch_raster(south, west, north, east) -> tuple[Image.Image | None, b
     return img, raw
 
 
-# ── Classification ────────────────────────────────────────────────────────────
+def sample_landuse_along_line(
+    lat_a: float, lon_a: float,
+    lat_b: float, lon_b: float,
+    south: float, west: float, north: float, east: float,
+    n: int = 50,
+) -> list[dict]:
+    """Sample the cached landuse raster along the centerline.
 
-def fill_corridor_grid(pairs: list, south: float, west: float,
-                       north: float, east: float) -> int:
-    """Fill empty corridor-grid points using a single WMS GetMap fetch.
-
-    Classifies by nearest-colour lookup against the legend palette — no
-    additional HTTP requests.  Returns the number of points classified.
+    Returns corridor features in the same {category, label, is_blocker, is_water,
+    tags, segments} format as get_corridor_features.  Consecutive samples with
+    the same classification are merged into a single segment.
     """
     img, _ = get_or_fetch_raster(south, west, north, east)
     if img is None:
-        return 0
+        return []
 
-    w, h   = img.size
-    lat_span = north - south
-    lon_span = east  - west
-    filled   = 0
+    pixels = img.load()
+    img_w, img_h = img.size
+    bbox_w = east - west
+    bbox_h = north - south
 
-    for pair in pairs:
-        for row in (pair.corridor_grid or []):
-            for pt in row["points"]:
-                if pt["obs"]:
-                    continue
-                px = min(w - 1, max(0, int((pt["lon"] - west)  / lon_span * w)))
-                py = min(h - 1, max(0, int((north - pt["lat"]) / lat_span * h)))
-                r, g, b, a = img.getpixel((px, py))
-                if a < 10:
-                    continue
-                t = _nearest_type(r, g, b)
-                if t:
-                    pt["obs"].append({"source": "osmlanduse", "tags": {"type": t}})
-                    filled += 1
+    types: list[str] = []
+    for i in range(n):
+        t = i / (n - 1)
+        lat = lat_a + t * (lat_b - lat_a)
+        lon = lon_a + t * (lon_b - lon_a)
+        px = int((lon - west) / bbox_w * img_w)
+        py = int((north - lat) / bbox_h * img_h)
+        px = max(0, min(img_w - 1, px))
+        py = max(0, min(img_h - 1, py))
+        r, g, b, a = pixels[px, py]
+        types.append(_nearest_type(r, g, b) if a >= 128 else "")
 
-    return filled
+    ts = [i / (n - 1) for i in range(n)]
+    features: list[dict] = []
+    seen: dict[str, int] = {}
+
+    i = 0
+    while i < n:
+        lu = types[i]
+        if not lu:
+            i += 1
+            continue
+        j = i + 1
+        while j < n and types[j] == lu:
+            j += 1
+        seg = {"t_start": round(ts[i], 3), "t_end": round(ts[j - 1], 3)}
+        if lu in seen:
+            features[seen[lu]]["segments"].append(seg)
+        else:
+            seen[lu] = len(features)
+            features.append({
+                "category": "landuse",
+                "label": lu.replace("_", " ").capitalize(),
+                "is_blocker": lu not in _ALLOWED,
+                "is_water": lu in {"water", "wetland", "coastal_wetland"},
+                "tags": {},
+                "segments": [seg],
+            })
+        i = j
+
+    return features
+
+

@@ -1,0 +1,722 @@
+{
+  "aerialway": {
+    "cable_car": {
+      "description": "A cable car run. Just one or two large cars. The traction cable forms a loop, but the cars do not loop around, they just move up and down on their own side, rolling along static cables over which they are suspended.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "gondola": {
+      "description": "An aerialway where the cabins go around in a circle.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "mixed_lift": {
+      "description": "A mixed lift, containing both gondolas and chairs.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "chair_lift": {
+      "description": "An open chairlift run. These have one or more seats or benches and are open to the outside air.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "drag_lift": {
+      "description": "An overhead tow-line for skiers and riders.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "zip_line": {
+      "description": "Zip line, gravity propelled aerial ropeslide like a flying fox or similar",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "goods": {
+      "description": "A cable supported lift for conveying goods, not passengers.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    }
+  },
+  "emergency": {
+    "assembly_point": {
+      "description": "A designated (safe) place where people can gather or must report to during an emergency or a fire drill.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    }
+  },
+  "historic": {
+    "bomb_crater": {
+      "description": "A bomb crater",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    }
+  },
+  "natural": {
+    "fell": {
+      "description": "Habitat above tree line covered with grass, dwarf shrubs and mosses.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "grassland": {
+      "description": "An area where the vegetation is dominated by grasses and other herbaceous (non-woody) plants.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "tree": {
+      "description": "A single tree.",
+      "los": false,
+      "buffer": false,
+      "anchor": true,
+      "water": false
+    },
+    "tundra": {
+      "description": "Treeless cold climate habitat with open, low growing sedges, grasses, mosses and lichens.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "wood": {
+      "description": "Tree-covered area (a 'forest' or 'wood')",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "bay": {
+      "description": "Named area of water mostly surrounded by land but with level connection to the ocean or a lake.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "beach": {
+      "description": "Landform along a body of water which consists of sand, shingle or other loose material.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "cape": {
+      "description": "A piece of elevated land sticking out into the sea or large lake.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "coastline": {
+      "description": "The line between sea and land indicating mean high water (springs): the water lies on the right side of the way.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "crevasse": {
+      "description": "A large crack in a glacier",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "glacier": {
+      "description": "A permanent body of ice formed naturally from snow that is moving under its own weight.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "hot_spring": {
+      "description": "A spring of geothermally heated groundwater",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "isthmus": {
+      "description": "A narrow strip of land, bordered by water on both sides and connecting two larger land masses",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "mud": {
+      "description": "Area covered with mud: water saturated fine grained soil without significant plant growth.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "peninsula": {
+      "description": "A piece of land projecting into water from a larger land mass, nearly surrounded by water",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "reef": {
+      "description": "A feature (rock, sandbar, coral, etc) lying permanently beneath the surface of the water.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "shingle": {
+      "description": "An accumulation of rounded rock fragments on a beach or riverbed.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "shoal": {
+      "description": "An area of the water floor which nears the water surface and is exposed at low tide or when a river/lake is not full of water.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "spring": {
+      "description": "A place where ground water flows naturally from the ground",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "strait": {
+      "description": "A narrow area of water surrounded by land on two sides and by water on two other sides.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "water": {
+      "description": "Any inland body of water, from natural such as a lake or pond to artificial like a moat or canal.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "wetland": {
+      "description": "A natural area subject to inundation or with waterlogged ground",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "cliff": {
+      "description": "A vertical or almost vertical natural drop in terrain, usually with a bare rock surface. The bottom of the cliff is on the right side of the way.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "dune": {
+      "description": "A hill of sand formed by wind, covered with no or very little vegetation",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "hill": {
+      "description": "A hill is a landform that is elevated above the surrounding terrain, but is smaller than a mountain.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "saddle": {
+      "description": "The lowest point along a ridge or between two mountain tops.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "sand": {
+      "description": "An area covered by sand with no or very little vegetation.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "sinkhole": {
+      "description": "A natural depression or hole in the surface topography.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "valley": {
+      "description": "A natural depression flanked by ridges or ranges of mountains or hills",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    }
+  },
+  "place": {
+    "country": {
+      "description": "A nation state or other high-level national political/administrative area.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "state": {
+      "description": "A large sub-national political/administrative area.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "region": {
+      "description": "Used both as a broad tag for geographic or historical areas with no clear boundary and for distinct administration areas (with specific boundaries) in some countries.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "province": {
+      "description": "A subdivision of a country similar to a state.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "district": {
+      "description": "A district – a type of administrative division that, in some countries, is managed by local government.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "county": {
+      "description": "A county - a geographical region of a country.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "subdistrict": {
+      "description": "A subdistrict - a subdivision of a district used for administrative or other purposes.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "municipality": {
+      "description": "A municipality - single urban administrative division having corporate status.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "city": {
+      "description": "The largest urban settlement or settlements within the territory.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "borough": {
+      "description": "A part in a larger city grouped into administrative unit.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "suburb": {
+      "description": "A part of a town or city with a well-known name and often a distinct identity.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "quarter": {
+      "description": "A quarter is a named, geographically localised place within a suburb of a larger city or within a town, which is bigger than a neighbourhood.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "neighbourhood": {
+      "description": "A neighbourhood is a smaller named, geographically localised place within a suburb of a larger city or within a town or village",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "city_block": {
+      "description": "A named city block, usually surrounded by streets.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "plot": {
+      "description": "A named plot is a tract or parcel of land owned or meant to be owned by some owner.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "town": {
+      "description": "An important urban centre, between a village and a city in size.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "village": {
+      "description": "A smaller distinct settlement, smaller than a town with few facilities available with people traveling to nearby towns to access these.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "hamlet": {
+      "description": "A smaller rural community, typically with fewer than 100-200 inhabitants, and little infrastructure.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "isolated_dwelling": {
+      "description": "The smallest kind of settlement (1-2 households).",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "farm": {
+      "description": "An individually named farm.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "allotments": {
+      "description": "A separate settlement, which is located outside an officially inhabited locality and has its own addressing",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "continent": {
+      "description": "One of the seven continents: Africa, Antarctica, Asia, Europe, North America, Oceania, South America.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "archipelago": {
+      "description": "A named group or chain of closely related islands and islets.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "island": {
+      "description": "Any piece of land that is completely surrounded by water and isolated from other significant landmasses (bigger than 1 km²).",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "islet": {
+      "description": "A very small island (smaller than 1 km²).",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "square": {
+      "description": "A town or village square: a (typically) paved open space, generally of architectural significance, which is surrounded by buildings in a built-up area such as a city, town or village.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "locality": {
+      "description": "A named place that has no population.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "polder": {
+      "description": "A land area that forms an artificial hydrological entity enclosed by embankments and usually is under sea level.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "sea": {
+      "description": "A large body of salt water part of, or connected to, an ocean.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "ocean": {
+      "description": "The world's five main major oceanic divisions.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    }
+  },
+  "power": {
+    "cable": {
+      "description": "An insulated cable carrying electrical power, such as transmission or distribution cables located underground and undersea cables",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "line": {
+      "description": "High-voltage power lines used for power transmission, usually supported by towers or pylons",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "minor_line": {
+      "description": "Minor power lines forming the distribution grid, usually carried by poles.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    }
+  },
+  "telecom": {
+    "line": {
+      "description": "A telecommunication line.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    }
+  },
+  "tourism": {
+    "camp_pitch": {
+      "description": "A tent or caravan pitch location within a campsite or caravan site.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "camp_site": {
+      "description": "An area where people can camp overnight using tents, camper vans, or caravans.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "caravan_site": {
+      "description": "A place where you can stay in a caravan overnight or for longer periods.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    },
+    "picnic_site": {
+      "description": "A locality that is suitable for outdoors eating, with facilities to aid a picnic such as tables and benches.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": false
+    }
+  },
+  "water": {
+    "river": {
+      "description": "The water covered area of a river.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "oxbow": {
+      "description": "U-shaped body of water formed when a wide meander from the main stem of a river is cut off to create a lake.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "canal": {
+      "description": "The area covered by the water of a canal",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "ditch": {
+      "description": "The water covered area of a waterway=ditch - a simple artificial waterway serving as a barrier or for draining surrounding land.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "lock": {
+      "description": "Water area of the lock chamber.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "lake": {
+      "description": "A natural or semi-natural body of relatively still fresh or salt water which is surrounded by land.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "reservoir": {
+      "description": "An artificial lake which may be used to store water. Usually formed by a dam over a natural water course.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "pond": {
+      "description": "A small body of standing water, man-made in most cases",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "basin": {
+      "description": "An area of land artificially graded to hold water. Includes also structures typically without water.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "lagoon": {
+      "description": "A body of shallow sea water or brackish water separated from the sea by a barrier.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "stream_pool": {
+      "description": "A stream pool: a small but relatively deep collection of fresh water, occurring along a narrow stream.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "reflecting_pool": {
+      "description": "A shallow pool of water, undisturbed by fountain jets, for a calm reflective surface, often found in gardens, squares or at memorial sites",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "moat": {
+      "description": "A deep, wide defensive ditch, normally filled with water, dug to surround a fortified habitation.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    }
+  },
+  "waterway": {
+    "river": {
+      "description": "The linear flow of a river, in flow direction.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "riverbank": {
+      "description": "Using this tag is discouraged, use tag:natural=water + tag:water=river instead.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "stream": {
+      "description": "A naturally-forming waterway that is too narrow to be classed as a river.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "tidal_channel": {
+      "description": "A natural intertidal waterway in mangroves, salt marshes, and tidal flats with water flow in the direction of the tide.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "canal": {
+      "description": "An artificial open flow waterway used to carry useful water for transportation, waterpower, or irrigation.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "drain": {
+      "description": "An artificial free flow waterway used for carrying superfluous water, usually lined with concrete.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "ditch": {
+      "description": "A small artificial drainage waterway, usually unlined.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "fairway": {
+      "description": "A navigable route in a lake or sea, often marked by buoys or beacons.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "dam": {
+      "description": "A barrier built across a river or stream to block and regulate the flow of the river.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "weir": {
+      "description": "A barrier built across a river to control water speed and depth. Designed to let water flow over the top all the time or at least in specific conditions.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    },
+    "waterfall": {
+      "description": "A place where water flows over a vertical drop or a series of drops in the course of a stream or river.",
+      "los": true,
+      "buffer": true,
+      "anchor": false,
+      "water": true
+    }
+  }
+}

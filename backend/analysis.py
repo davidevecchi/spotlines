@@ -36,6 +36,7 @@ def _candidates_numpy(
     if n < 2:
         return np.array([], dtype=int), np.array([], dtype=int), np.array([])
 
+    # mean-lat approximation: valid for the ≤0.1° bbox enforced by the API
     mean_lat_rad = math.radians(float(np.mean(lats)))
     max_dlat = max_m / 111_111
     max_dlon = max_m / (111_111 * max(math.cos(mean_lat_rad), 0.001))
@@ -137,6 +138,25 @@ def enumerate_pairs(
     return [p for chunk in chunk_results for p in chunk if p is not None]
 
 
+def compute_corridor_landuse(
+    pairs: list[Pair],
+    south: float, west: float, north: float, east: float,
+) -> None:
+    """Append raster-based landuse features to each pair's corridor_features.
+
+    Runs synchronously (raster is cached after the first fetch).
+    """
+    from .landuse import sample_landuse_along_line
+    for p in pairs:
+        lu = sample_landuse_along_line(
+            p.anchor_a.lat, p.anchor_a.lon,
+            p.anchor_b.lat, p.anchor_b.lon,
+            south, west, north, east,
+        )
+        if lu:
+            p.corridor_features = (p.corridor_features or []) + lu
+
+
 def compute_corridor_features(
     pairs: list[Pair],
     element_tree: STRtree,
@@ -144,8 +164,29 @@ def compute_corridor_features(
     clearance_m: float,
     mid_lat: float,
 ) -> None:
-    """Populate corridor_features on each pair (deferred from enumeration; called after slope filtering)."""
-    for p in pairs:
-        p.corridor_features = get_corridor_features(
-            p.anchor_a, p.anchor_b, clearance_m, element_tree, records, mid_lat
+    """Populate corridor_features on each pair in parallel (called after slope filtering).
+
+    STRtree is read-only and thread-safe in Shapely 2.x.
+    """
+    if not pairs:
+        return
+
+    n_workers = min(os.cpu_count() or 1, 4)
+
+    def _one(p: Pair):
+        return get_corridor_features(p.anchor_a, p.anchor_b, clearance_m, element_tree, records, mid_lat)
+
+    with ThreadPoolExecutor(max_workers=n_workers) as pool:
+        for p, features in zip(pairs, pool.map(_one, pairs)):
+            p.corridor_features = features
+
+
+def filter_landuse_blockers(pairs: list[Pair]) -> list[Pair]:
+    """Drop pairs whose centerline crosses a blocking landuse zone."""
+    return [
+        p for p in pairs
+        if not any(
+            f["is_blocker"] and f["segments"] and f["category"] == "landuse"
+            for f in (p.corridor_features or [])
         )
+    ]

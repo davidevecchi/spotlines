@@ -13,19 +13,9 @@ from shapely.strtree import STRtree
 from shapely.validation import make_valid
 
 from .overpass import Anchor
+from . import feature_map as _fm
 
 EARTH_RADIUS = 6_371_000  # metres
-
-LANDUSE_ALLOWED = frozenset({
-    "education", "fairground", "allotments", "farmland", "farmyard",
-    "logging", "meadow", "orchard", "basin", "grass", "greenfield",
-    "recreation_ground", "winter_sports", "forest",
-})
-LEISURE_ALLOWED = frozenset({"nature_reserve", "park", "garden", "summer_camp", "pitch", "dog_park"})
-TOURISM_ALLOWED = frozenset({"camp_pitch", "camp_site", "caravan_site", "picnic_site"})
-MAN_MADE_ALLOWED = frozenset({"cutline", "clearcut", "dyke", "embankment"})
-RAILWAY_OK = frozenset({"abandoned", "disused"})
-WATERWAY_BLOCKING = frozenset({"dock", "boatyard", "water_point", "fuel"})
 
 
 _POINT_BUF = 0.00002   # ~2 m in degrees
@@ -88,9 +78,9 @@ def infer_width(tags: dict) -> float:
         return 0.5
     if tags.get("natural") == "tree":
         try:
-            radius = max(float(tags.get("circumference", 0)) / (2 * math.pi), 0.5)
+            radius = max(float(tags.get("circumference", 0)) / (2 * math.pi), 0.3)
         except (ValueError, TypeError):
-            radius = 0.5
+            radius = 0.3
         return radius * 2
     if any(k in tags for k in ("amenity", "man_made", "emergency")):
         return 1.0
@@ -105,11 +95,11 @@ def infer_width(tags: dict) -> float:
 class OsmRecord:
     """One geometry emitted during the unified classification pass.
 
-    is_blocker and is_water are mutually exclusive.
+    is_blocker and is_water are mutually exclusive (never both True).
     anchor_id is non-None only for synthetic anchor trunk buffers.
-    label/category are populated for ways/relations that have a human-readable
-    identity (roads, waterways, railways, buildings, etc.).
-    tags/osm_id/osm_type carry the raw OSM data for corridor grid sampling.
+    label/category are populated for any element (node, way, or relation)
+    with a human-readable identity (roads, waterways, railways, buildings, etc.).
+    tags/osm_id/osm_type carry the raw OSM data for corridor feature extraction.
     """
     geom: object
     is_blocker: bool
@@ -193,9 +183,9 @@ def _relation_geom(rel: dict, ways_by_id: dict, nodes_by_id: dict):
 def _element_geom(el: dict, etype: str, nodes_by_id: dict, ways_by_id: dict,
                   _cache: dict | None = None):
     if _cache is not None:
-        eid = el["id"]
-        if eid in _cache:
-            return _cache[eid]
+        cache_key = (etype, el["id"])  # tuple key: node/way/relation share numeric ID space
+        if cache_key in _cache:
+            return _cache[cache_key]
     if etype == "node":
         result = _node_pt(el)
     elif etype == "way":
@@ -205,7 +195,7 @@ def _element_geom(el: dict, etype: str, nodes_by_id: dict, ways_by_id: dict,
     else:
         result = None
     if _cache is not None:
-        _cache[eid] = result
+        _cache[cache_key] = result
     return result
 
 
@@ -224,89 +214,33 @@ def _classify_blocking(el: dict, etype: str, tags: dict,
         pt = _node_pt(el)
         return pt.buffer(_POINT_BUF) if pt else None
 
-    if tags.get("aeroway"):
-        return node_buf() if etype == "node" else geom()
+    # Pass through only features explicitly allowed by the JSON (los, water, or anchor).
+    for jkey in _fm.KEYS:
+        val = tags.get(jkey)
+        if val is not None and val in _fm.DATA.get(jkey, {}):
+            p = _fm.props(jkey, val)
+            if p.get("los") or p.get("water") or p.get("anchor"):
+                return None
 
-    if tags.get("amenity"):
-        return node_buf() if etype == "node" else geom()
-
-    if "barrier" in tags:
-        if tags["barrier"] == "kerb":
-            return None
-        return node_buf() if etype == "node" else geom()
-
-    if tags.get("building"):
-        return None if etype == "node" else geom()
-
-    if tags.get("craft"):
-        return None if etype == "node" else geom()
-
-    if tags.get("emergency"):
-        return node_buf() if etype == "node" else geom()
-
-    if tags.get("healthcare"):
-        return None if etype == "node" else geom()
-
-    if tags.get("highway"):
-        return geom() if etype == "way" else None
-
-    if tags.get("historic"):
-        return node_buf() if etype == "node" else geom()
-
-    if "landuse" in tags:
-        return None if tags["landuse"] in LANDUSE_ALLOWED else geom()
-
-    if "leisure" in tags:
-        return None if tags["leisure"] in LEISURE_ALLOWED else geom()
-
-    if "man_made" in tags:
-        return None if tags["man_made"] in MAN_MADE_ALLOWED else geom()
-
-    if tags.get("military"):
-        return None if etype == "node" else geom()
-
-    if tags.get("office"):
-        return None if etype == "node" else geom()
-
-    if tags.get("power") in {"line", "minor_line", "cable"}:
-        return geom() if etype == "way" else None
-
-    if tags.get("public_transport"):
-        return node_buf() if etype == "node" else geom()
-
-    if "railway" in tags:
-        if tags["railway"] in RAILWAY_OK:
-            return None
-        return geom() if etype == "way" else None
-
-    if tags.get("shop"):
-        return node_buf() if etype == "node" else geom()
-
-    if tags.get("telecom") == "line":
-        return geom() if etype == "way" else None
-
-    if "tourism" in tags:
-        return None if tags["tourism"] in TOURISM_ALLOWED else geom()
-
-    if tags.get("wastewater"):
-        return None if etype == "node" else geom()
-
-    if "waterway" in tags and tags["waterway"] in WATERWAY_BLOCKING:
-        return node_buf() if etype == "node" else geom()
-
-    return None
+    # Physical node obstacles (benches, bollards, poles, etc.) block with an inferred radius.
+    if etype == "node":
+        if any(k in tags for k in ("amenity", "man_made", "emergency")):
+            pt = _node_pt(el)
+            if pt:
+                radius_deg = infer_width(tags) / 2.0 / 111_111
+                return pt.buffer(radius_deg)
+        return None
+    return geom()
 
 
 def _classify_water(el: dict, etype: str, tags: dict,
                     nodes_by_id: dict, ways_by_id: dict, _cache: dict | None = None):
     """Return a water Shapely geometry or None."""
-    ww = tags.get("waterway")
-    if ww and ww not in WATERWAY_BLOCKING:
-        return _element_geom(el, etype, nodes_by_id, ways_by_id, _cache)
-
-    if tags.get("natural") == "water":
-        return _element_geom(el, etype, nodes_by_id, ways_by_id, _cache)
-
+    for jkey in _fm.KEYS:
+        val = tags.get(jkey)
+        if val is not None and val in _fm.DATA.get(jkey, {}):
+            if _fm.props(jkey, val).get("water"):
+                return _element_geom(el, etype, nodes_by_id, ways_by_id, _cache)
     return None
 
 
@@ -314,60 +248,37 @@ def _format_tag(val: str) -> str:
     return val.replace("_", " ").capitalize()
 
 
+# Non-JSON OSM keys handled by hardcoded logic.
+# amenity is intentionally excluded: minor values like bench are buffer-only;
+# display-worthy amenity values are enumerated in feature_map.json (los=true).
+_SIMPLE_CATEGORIES = (
+    "highway", "railway", "leisure", "barrier", "man_made",
+    "aeroway", "craft", "healthcare",
+    "military", "office", "public_transport", "shop", "wastewater",
+)
+
+# natural checked last so water=<sub> tags (water=lake, etc.) take precedence
+# over natural=water when both are present on the same element.
+_JSON_LABEL_KEYS: list[str] = sorted(_fm.KEYS - {"natural"}) + (
+    ["natural"] if "natural" in _fm.KEYS else []
+)
+
+
 def _feature_label_category(tags: dict, etype: str) -> tuple:
     """Return (label, category) for corridor display, or (None, None) if not relevant."""
     name = tags.get("name")
 
-    hw = tags.get("highway")
-    if hw:
-        return (name or _format_tag(hw)), "highway"
+    for jkey in _JSON_LABEL_KEYS:
+        val = tags.get(jkey)
+        if val is not None and val in _fm.DATA.get(jkey, {}):
+            p = _fm.props(jkey, val)
+            if p.get("los") or p.get("water"):
+                return (name or _format_tag(val)), jkey
 
-    ww = tags.get("waterway")
-    if ww:
-        return (name or _format_tag(ww)), "waterway"
-
-    nat = tags.get("natural")
-    if nat:
-        if nat == "tree" and etype == "node":
-            return None, None   # anchor candidates — suppress
-        label = "Water" if nat == "water" else (name or _format_tag(nat))
-        return label, "natural"
-
-    rw = tags.get("railway")
-    if rw and rw not in RAILWAY_OK:
-        return (name or _format_tag(rw)), "railway"
-
-    pw = tags.get("power")
-    if pw in {"line", "minor_line", "cable"}:
-        return (name or (_format_tag(pw) + " line")), "power"
-
-    if tags.get("telecom") == "line":
-        return (name or "Telecom line"), "telecom"
-
-    lu = tags.get("landuse")
-    if lu:
-        return (name or _format_tag(lu)), "landuse"
-
-    ls = tags.get("leisure")
-    if ls:
-        return (name or _format_tag(ls)), "leisure"
-
-    bld = tags.get("building")
-    if bld:
-        label = name or ("Building" if bld in ("yes", "true", "1") else _format_tag(bld))
-        return label, "building"
-
-    ba = tags.get("barrier")
-    if ba and ba != "kerb":
-        return (name or _format_tag(ba)), "barrier"
-
-    mm = tags.get("man_made")
-    if mm and mm not in MAN_MADE_ALLOWED:
-        return (name or _format_tag(mm)), "man_made"
-
-    am = tags.get("amenity")
-    if am:
-        return (name or _format_tag(am)), "amenity"
+    for key in _SIMPLE_CATEGORIES:
+        val = tags.get(key)
+        if val:
+            return (name or _format_tag(val)), key
 
     return None, None
 
@@ -381,7 +292,7 @@ def build_all_indices(
     nodes_by_id: dict,
     ways_by_id: dict,
     anchors: list[Anchor],
-    geom_cache: dict | None = None,
+    geom_cache: dict[tuple[str, int], object] | None = None,
     mid_lat: float = 45.0,
 ) -> tuple:
     """Single classification pass over all OSM elements.
@@ -448,6 +359,9 @@ def build_all_indices(
 # Line-of-sight
 # ---------------------------------------------------------------------------
 
+_LOS_CENTER_FRAC = 0.8  # fraction of line length (centred) used for LOS and landuse blocking checks
+
+
 def _shrink_line_frac(lon1: float, lat1: float, lon2: float, lat2: float,
                       frac: float) -> LineString:
     """Shrink line by `frac` of its length from each endpoint."""
@@ -459,11 +373,14 @@ def _shrink_line_frac(lon1: float, lat1: float, lon2: float, lat2: float,
 
 
 def _clearance_deg(clearance_m: float, mid_lat: float) -> float:
-    """Convert a clearance distance in metres to degrees at the given latitude."""
-    lat_m_per_deg = 111_111.0
-    lon_m_per_deg = 111_111.0 * math.cos(math.radians(mid_lat))
-    avg = (lat_m_per_deg + lon_m_per_deg) / 2.0
-    return clearance_m / avg
+    """Convert a clearance distance in metres to degrees at the given latitude.
+
+    Uses the geometric mean of lat/lon m-per-deg so the resulting Shapely buffer
+    is approximately isotropic (equal E-W and N-S clearance in metres).
+    """
+    lat_mpd = 111_111.0
+    lon_mpd = 111_111.0 * math.cos(math.radians(mid_lat))
+    return clearance_m / math.sqrt(lat_mpd * lon_mpd)
 
 
 def check_los(
@@ -486,11 +403,11 @@ def check_los(
         if rec.is_blocker and rec.anchor_id not in endpoints:
             return False, False
 
-    # Step 2: clearance corridor at 80% of line length (skips anchor attachment zones)
+    # Step 2: clearance corridor (central 80%) — physical clearance check
     if clearance_m > 0:
         mid_lat = (a.lat + b.lat) / 2.0
         buf_deg = _clearance_deg(clearance_m, mid_lat)
-        center = _shrink_line_frac(a.lon, a.lat, b.lon, b.lat, 0.1)
+        center = _shrink_line_frac(a.lon, a.lat, b.lon, b.lat, (1.0 - _LOS_CENTER_FRAC) / 2)
         corridor = center.buffer(buf_deg, cap_style=2)
         for idx in element_tree.query(corridor, predicate="intersects"):
             rec = records[idx]
