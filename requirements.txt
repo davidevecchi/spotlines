@@ -5,3 +5,4 @@ shapely>=2.0
 numpy
 rasterio
 Pillow
+matplotlib

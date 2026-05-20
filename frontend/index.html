@@ -264,6 +264,7 @@
     /* Hide default attribution Leaflet controls that conflict */
     .leaflet-top.leaflet-left { top: 10px; left: 280px; }
     .leaflet-top.leaflet-right { top: 10px; right: 60px; }
+    .landuse-crisp img { image-rendering: pixelated; }
   </style>
 </head>
 <body>
@@ -454,6 +455,19 @@
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
 <script>
+// ── Constants ────────────────────────────────────────────────────────────────
+const MAX_SLOPE_DEG  = 45;      // slope colour scale ceiling (matches backend)
+const GRAVITY        = 9.81;    // m/s²
+const NR_MAX_ITERS   = 60;      // Newton-Raphson iteration limit
+const NR_EPSILON     = 1e-7;    // Newton-Raphson convergence threshold
+const WALKER_CLAMP   = [0.02, 0.98];  // fraction range for walker along line
+const SMOOTH_KERNEL  = [0.15, 0.70, 0.15];  // elevation profile smoothing weights
+const WALKER_SAMPLES = 21;      // catenary sample points (20 intervals)
+const LINE_PRESETS = {
+  tubular25: { EA: 150_000,   w: 0.70 },
+  dyneema1:  { EA: 1_500_000, w: 0.07 },
+};
+
 // ── Colormaps ────────────────────────────────────────────────────────────────
 // Cyan → blue → violet → magenta
 const PLASMA = [
@@ -564,7 +578,7 @@ const labelsLayer = L.tileLayer(
   { attribution: '&copy; CARTO', maxZoom: 19, pane: 'labelsPane' }
 );
 
-let activeBaseKey = 'osm';
+let _activeBaseKey = 'osm';
 LAYERS.osm.layer.addTo(map);
 
 // Build layer thumbnail grid
@@ -594,9 +608,9 @@ let _blankOn = false;
 let _blankRect = null;
 function _addBlankRect() {
   _removeBlankRect();
-  if (!currentBbox) return;
+  if (!_currentBbox) return;
   _blankRect = L.rectangle(
-    [[currentBbox.south, currentBbox.west], [currentBbox.north, currentBbox.east]],
+    [[_currentBbox.south, _currentBbox.west], [_currentBbox.north, _currentBbox.east]],
     { stroke: false, fillColor: '#ffffff', fillOpacity: 1.0, pane: 'blankPane', interactive: false }
   ).addTo(map);
 }
@@ -613,15 +627,15 @@ function toggleBase(key) {
     return;
   }
   const thumbs = document.querySelectorAll('.layer-thumb[data-key]:not([data-key="blank"])');
-  if (key === activeBaseKey) {
+  if (key === _activeBaseKey) {
     map.removeLayer(LAYERS[key].layer);
-    activeBaseKey = null;
+    _activeBaseKey = null;
     thumbs.forEach(el => el.classList.remove('active'));
     return;
   }
-  if (activeBaseKey) map.removeLayer(LAYERS[activeBaseKey].layer);
+  if (_activeBaseKey) map.removeLayer(LAYERS[_activeBaseKey].layer);
   LAYERS[key].layer.addTo(map);
-  activeBaseKey = key;
+  _activeBaseKey = key;
   thumbs.forEach(el => el.classList.toggle('active', el.dataset.key === key));
 }
 
@@ -634,8 +648,8 @@ function _makeSlopeOverlay(url, bounds) {
     pane: 'heatmapPane',
     attribution: 'Slope &copy; Copernicus GLO-30 / TINItaly INGV',
   });
-  l.on('add',    () => { drawnItems.setStyle({ fillOpacity: 0 }); showSlopeLegend(true); });
-  l.on('remove', () => { drawnItems.setStyle({ fillOpacity: 0.2 }); showSlopeLegend(false); });
+  l.on('add',    () => { _drawnItems.setStyle({ fillOpacity: 0 }); showSlopeLegend(true); });
+  l.on('remove', () => { _drawnItems.setStyle({ fillOpacity: 0.2 }); showSlopeLegend(false); });
   return l;
 }
 
@@ -695,6 +709,7 @@ async function updateLanduseLayer(bbox) {
   landuseLayer = L.imageOverlay(url, [[bbox.south, bbox.west], [bbox.north, bbox.east]], {
     opacity: 0.65, pane: 'landusePane',
     attribution: 'Land use &copy; <a href="https://osmlanduse.org" target="_blank">osmlanduse.org</a> / HeiGIT',
+    className: 'landuse-crisp',
   });
   if (wasOn) { landuseLayer.addTo(map); _setOverlayActive('landuse', true); }
 }
@@ -795,7 +810,7 @@ sliderEl.noUiSlider.on('update', (vals) => {
 });
 
 // ── Draw rectangle ───────────────────────────────────────────────────────────
-const drawnItems = new L.FeatureGroup().addTo(map);
+const _drawnItems = new L.FeatureGroup().addTo(map);
 
 // Include Draw control for event system only (toolbar hidden via CSS)
 map.addControl(new L.Control.Draw({
@@ -818,13 +833,13 @@ function toggleSelectArea() {
   btn.classList.add('active');
 }
 
-let currentBbox = null;
+let _currentBbox = null;
 
 map.on(L.Draw.Event.CREATED, e => {
-  drawnItems.clearLayers();
-  drawnItems.addLayer(e.layer);
+  _drawnItems.clearLayers();
+  _drawnItems.addLayer(e.layer);
   const b = e.layer.getBounds();
-  currentBbox = { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() };
+  _currentBbox = { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() };
   if (_blankOn) _addBlankRect();
   _drawHandler = null;
   document.getElementById('selectAreaBtn').classList.remove('active');
@@ -833,10 +848,10 @@ map.on(L.Draw.Event.CREATED, e => {
 });
 
 // ── Search ───────────────────────────────────────────────────────────────────
-const resultsLayer = L.layerGroup([], { pane: 'linesPane' }).addTo(map);
+const _resultsLayer = L.layerGroup([], { pane: 'linesPane' }).addTo(map);
 
 async function doSearch() {
-  if (!currentBbox) { setStatus('Draw an area first'); return; }
+  if (!_currentBbox) { setStatus('Draw an area first'); return; }
 
   const vals      = sliderEl.noUiSlider.get();
   const minM      = parseFloat(vals[0]);
@@ -847,14 +862,14 @@ async function doSearch() {
 
   if (minM >= maxM) { setStatus('Min must be less than max'); return; }
 
-  const { south, west, north, east } = currentBbox;
+  const { south, west, north, east } = _currentBbox;
   if (Math.abs(north - south) > 0.1 || Math.abs(east - west) > 0.1) {
     setStatus('Area too large — max 0.1° per side'); return;
   }
 
   setLoading(true);
   closeDetail();
-  resultsLayer.clearLayers();
+  _resultsLayer.clearLayers();
 
   try {
     const qs = new URLSearchParams({ south, west, north, east, min_m: minM, max_m: maxM, water, max_slope: maxSlope, clearance_m: clearanceM });
@@ -889,10 +904,10 @@ async function doSearch() {
           setStatus(`${n} pair${n !== 1 ? 's' : ''} found`);
           drawLegend(realMin, realMax);
           showSlopeLegend(map.hasLayer(slopeLayer));
-          updateSlopeLayer(currentBbox);
-          updateContourLayer(currentBbox);
-          updateElevLayer(currentBbox);
-          updateLanduseLayer(currentBbox);
+          updateSlopeLayer(_currentBbox);
+          updateContourLayer(_currentBbox);
+          updateElevLayer(_currentBbox);
+          updateLanduseLayer(_currentBbox);
         }
         if (msg.landuse_update) {
           msg.landuse_update.forEach((feat, i) => {
@@ -920,7 +935,7 @@ async function doSearch() {
 
 // ── Rendering ────────────────────────────────────────────────────────────────
 function renderResults(geojson, minM, maxM) {
-  resultsLayer.clearLayers();
+  _resultsLayer.clearLayers();
   _outlineGeoJson = null; _coloredGeoJson = null; _selectedLayer = null; _currentDetailCoords = null;
   _currentFeatures = geojson.features;
   const dists  = geojson.features.map(f => f.properties.distance_m);
@@ -947,8 +962,8 @@ function renderResults(geojson, minM, maxM) {
   });
   _outlineGeoJson = outline;
   _coloredGeoJson = layer;
-  resultsLayer.addLayer(outline);
-  resultsLayer.addLayer(layer);
+  _resultsLayer.addLayer(outline);
+  _resultsLayer.addLayer(layer);
   return { realMin, realMax };
 }
 
@@ -980,9 +995,9 @@ function _updateElevCursorAt(t, tooltipClientX, tooltipClientY) {
   if (!_svgCursorState || !_currentDetailPair) return;
   _lastCatT = t;
   _updateCatenaryAt(t);
-  const { cursorG, cLine, cDot, PL, iW, PT, iH, mn, mx, n, rng, smoothed } = _svgCursorState;
+  const { cursorG, cLine, cDot, padLeft, innerW, padTop, innerH, minElev, elevRange, n, smoothed } = _svgCursorState;
   const { p } = _currentDetailPair;
-  const cx = (PL + t * iW).toFixed(2);
+  const cx = (padLeft + t * innerW).toFixed(2);
   cursorG.removeAttribute('display');
   cLine.setAttribute('x1', cx); cLine.setAttribute('x2', cx);
 
@@ -995,8 +1010,8 @@ function _updateElevCursorAt(t, tooltipClientX, tooltipClientY) {
   const idx  = Math.min(Math.round(fi), n - 1);
   const distM = Math.round(p.distance_m * t);
 
-  if (elev != null && rng > 0) {
-    const cy = (PT + iH - ((elev - mn) / rng) * iH).toFixed(2);
+  if (elev != null && elevRange > 0) {
+    const cy = (padTop + innerH - ((elev - minElev) / elevRange) * innerH).toFixed(2);
     cDot.setAttribute('cx', cx); cDot.setAttribute('cy', cy);
     cDot.removeAttribute('display');
   } else {
@@ -1052,6 +1067,14 @@ function _onMapHover(e) {
   }
 }
 
+function _svgDims(svg) {
+  return {
+    padLeft: +svg.dataset.pl, innerW:   +svg.dataset.iw,
+    padTop:  +svg.dataset.pt, innerH:   +svg.dataset.ih,
+    minElev: +svg.dataset.mn, maxElev:  +svg.dataset.mx,
+  };
+}
+
 function _attachElevHover() {
   _svgCursorState = null;
   if (!_currentDetailPair) return;
@@ -1059,11 +1082,9 @@ function _attachElevHover() {
   const svg = document.querySelector('#detail-content svg[data-elev]');
   if (!svg) return;
 
-  const PL  = +svg.dataset.pl,  iW = +svg.dataset.iw;
-  const PT  = +svg.dataset.pt,  iH = +svg.dataset.ih;
-  const mn  = +svg.dataset.mn,  mx = +svg.dataset.mx;
-  const n   = +svg.dataset.n;
-  const rng = mx - mn;
+  const { padLeft, innerW, padTop, innerH, minElev, maxElev } = _svgDims(svg);
+  const n        = +svg.dataset.n;
+  const elevRange = maxElev - minElev;
 
   const cursorG = svg.querySelector('.elev-cursor');
   const cLine   = svg.querySelector('.elev-cursor-line');
@@ -1072,13 +1093,13 @@ function _attachElevHover() {
   if (!overlay) return;
 
   const smoothed = _smoothElevs(_currentDetailPair.p.terrain_elevs || []);
-  _svgCursorState = { cursorG, cLine, cDot, PL, iW, PT, iH, mn, mx, n, rng, smoothed };
+  _svgCursorState = { cursorG, cLine, cDot, padLeft, innerW, padTop, innerH, minElev, maxElev, n, elevRange, smoothed };
 
   overlay.addEventListener('mousemove', e => {
     const svgPt = svg.createSVGPoint();
     svgPt.x = e.clientX; svgPt.y = e.clientY;
     const pt = svgPt.matrixTransform(svg.getScreenCTM().inverse());
-    const t  = Math.max(0, Math.min(1, (pt.x - PL) / iW));
+    const t  = Math.max(0, Math.min(1, (pt.x - padLeft) / innerW));
     _updateElevCursorAt(t, e.clientX, e.clientY);
     if (coords && coords.length >= 2) {
       const [[lonA, latA], [lonB, latB]] = coords;
@@ -1312,21 +1333,31 @@ function catmullRomPath(pts) {
   return d;
 }
 
-function elevProfileSvgCompact(elevs, elevA, elevB) {
-  if (!elevs || !elevs.length) return '';
+// Shared setup for both elevation SVG builders: smooth, compute min/max, find valid index bounds.
+function _buildElevBase(elevs, elevA, elevB) {
   elevs = _smoothElevs(elevs);
   const valid = elevs.filter(e => e != null);
-  if (!valid.length) return '';
-  const W = 200, H = 68, PX = 4, PY = 18, n = elevs.length;
+  if (!valid.length) return null;
   const allVals = [...valid];
   if (elevA != null) allVals.push(elevA);
   if (elevB != null) allVals.push(elevB);
-  const lo = Math.min(...allVals) - 1, hi = Math.max(...allVals) + 1, rng = hi - lo;
-  const sx = i => PX + (i / (n - 1)) * (W - 2 * PX);
-  const sy = e => e != null ? H - PY - ((e - lo) / rng) * (H - 2 * PY) : null;
-  const pts = elevs.map((e, i) => e != null ? [sx(i), sy(e)] : null).filter(Boolean);
+  const mn = Math.min(...allVals) - 1, mx = Math.max(...allVals) + 1;
   const firstIdx = elevs.findIndex(e => e != null);
   const lastIdx  = elevs.length - 1 - [...elevs].reverse().findIndex(e => e != null);
+  return { smoothed: elevs, mn, mx, n: elevs.length, firstIdx, lastIdx };
+}
+
+function elevProfileSvgCompact(elevs, elevA, elevB) {
+  if (!elevs || !elevs.length) return '';
+  const base = _buildElevBase(elevs, elevA, elevB);
+  if (!base) return '';
+  const { smoothed, mn, mx, n, firstIdx, lastIdx } = base;
+  elevs = smoothed;
+  const W = 200, H = 68, PX = 4, PY = 18;
+  const rng = mx - mn;
+  const sx = i => PX + (i / (n - 1)) * (W - 2 * PX);
+  const sy = e => e != null ? H - PY - ((e - mn) / rng) * (H - 2 * PY) : null;
+  const pts = elevs.map((e, i) => e != null ? [sx(i), sy(e)] : null).filter(Boolean);
   const sp = catmullRomPath(pts);
   const fp = sp ? sp + ` L ${sx(lastIdx).toFixed(2)},${H} L ${sx(firstIdx).toFixed(2)},${H} Z` : '';
   let slackLine = '';
@@ -1346,19 +1377,16 @@ function elevProfileSvgCompact(elevs, elevA, elevB) {
 }
 
 function elevSvg(terrain, elevA, elevB, corridorFeatures, distance_m, W, H) {
-  const corridorGrid = corridorFeatures; // renamed; reused below
   if (!terrain) return '';
-  terrain = _smoothElevs(terrain);
-  const valid = terrain.filter(e => e != null);
-  if (!valid.length) return '';
+  const base = _buildElevBase(terrain, elevA, elevB);
+  if (!base) return '';
+  const { smoothed, mn, mx, n, firstIdx, lastIdx } = base;
+  terrain = smoothed;
   W = W || 292; H = H || 160;
   const PL = 36, PR = 6, PT = 8, PB = 50;
-  const iW = W - PL - PR, iH = H - PT - PB, n = terrain.length;
+  const iW = W - PL - PR, iH = H - PT - PB;
   const xAxisY = PT + iH;
-  const allVals = [...valid];
-  if (elevA != null) allVals.push(elevA);
-  if (elevB != null) allVals.push(elevB);
-  const mn = Math.min(...allVals) - 1, mx = Math.max(...allVals) + 1, rng = mx - mn;
+  const rng = mx - mn;
   const px = i => PL + (i / (n - 1)) * iW;
   const py = e => PT + iH - ((e - mn) / rng) * iH;
 
@@ -1393,8 +1421,8 @@ function elevSvg(terrain, elevA, elevB, corridorFeatures, distance_m, W, H) {
 
   // Terrain strips from corridor_features segments
   let strips = '', terrainBand = '', terrainLabels = '';
-  if (corridorGrid && corridorGrid.length) {
-    for (const feat of corridorGrid) {
+  if (corridorFeatures && corridorFeatures.length) {
+    for (const feat of corridorFeatures) {
       const col = featureColor(feat);
       for (const seg of (feat.segments || [])) {
         const x1 = PL + seg.t_start * iW, x2 = PL + seg.t_end * iW;
@@ -1411,8 +1439,6 @@ function elevSvg(terrain, elevA, elevB, corridorFeatures, distance_m, W, H) {
 
   // Smooth profile path
   const pts = terrain.map((e, i) => e != null ? [px(i), py(e)] : null).filter(Boolean);
-  const firstIdx = terrain.findIndex(e => e != null);
-  const lastIdx  = terrain.length - 1 - [...terrain].reverse().findIndex(e => e != null);
   const sp = catmullRomPath(pts);
   const fp = sp + ` L ${px(lastIdx).toFixed(2)},${xAxisY.toFixed(2)} L ${px(firstIdx).toFixed(2)},${xAxisY.toFixed(2)} Z`;
 
@@ -1462,16 +1488,6 @@ function elevSvg(terrain, elevA, elevB, corridorFeatures, distance_m, W, H) {
   </svg>`;
 }
 
-function _projectOnSegment(lat, lon, latA, lonA, latB, lonB) {
-  const cosLat = Math.cos((latA + latB) / 2 * Math.PI / 180);
-  const ax = lonA * cosLat, ay = latA;
-  const bx = lonB * cosLat, by = latB;
-  const px = lon  * cosLat, py = lat;
-  const dx = bx - ax, dy = by - ay;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return 0;
-  return Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
-}
 
 function buildTooltip(p) {
   const rise = (p.elev_b != null && p.elev_a != null) ? (p.elev_b - p.elev_a) : 0;
@@ -1556,7 +1572,7 @@ function showSlopeLegend(visible) {
   document.getElementById('slope-legend').style.display = visible ? 'block' : 'none';
   if (!visible) return;
   const { min, max } = _slopeStats;
-  _fillBar('slope-bar', x => slopeColor((min + x * (max - min)) / 45));
+  _fillBar('slope-bar', x => slopeColor((min + x * (max - min)) / MAX_SLOPE_DEG));
   document.getElementById('slope-leg-min').textContent = min.toFixed(1) + '°';
   document.getElementById('slope-leg-max').textContent = max.toFixed(1) + '°';
 }
@@ -1698,17 +1714,13 @@ function _solveLoaded(d, h, L0, w, EA, xw, W, H0) {
 
 // Read current line params from toolbar inputs.
 function _getLineParams() {
-  const presets = {
-    tubular25: { EA: 150000, w: 0.70 },
-    dyneema1:  { EA: 1500000, w: 0.07 },
-  };
   const preset = document.getElementById('linePreset')?.value || 'tubular25';
   const { EA, w } = preset === 'custom'
-    ? { EA: +(document.getElementById('lineEA')?.value) || 150000,
-        w:  +(document.getElementById('lineW')?.value)  || 0.70 }
-    : (presets[preset] || presets.tubular25);
+    ? { EA: +(document.getElementById('lineEA')?.value) || LINE_PRESETS.tubular25.EA,
+        w:  +(document.getElementById('lineW')?.value)  || LINE_PRESETS.tubular25.w }
+    : (LINE_PRESETS[preset] || LINE_PRESETS.tubular25);
   const H0 = +(document.getElementById('preTension')?.value) || 2000;
-  const W  = (+(document.getElementById('walkerKg')?.value) || 80) * 9.81;
+  const W  = (+(document.getElementById('walkerKg')?.value) || 80) * GRAVITY;
   return { EA, w, H0, W };
 }
 
@@ -1751,17 +1763,16 @@ function _updateCatenaryAt(t) {
   const elevA  = p.elev_a ?? 0;
   const xw     = Math.max(0.02, Math.min(0.98, t)) * d;
 
-  const PL = +svg.dataset.pl, iW = +svg.dataset.iw;
-  const PT = +svg.dataset.pt, iH = +svg.dataset.ih;
-  const mn = +svg.dataset.mn, rng = +svg.dataset.mx - mn;
-  if (rng <= 0) return;
+  const { padLeft, innerW, padTop, innerH, minElev, maxElev } = _svgDims(svg);
+  const elevRange = maxElev - minElev;
+  if (elevRange <= 0) return;
 
   const { EA, w, H0, W } = _getLineParams();
 
   // Physical → SVG pixel coordinates (shared by locus and catenary)
   const toSvg = (xm, ym) => [
-    (PL + (xm / d) * iW).toFixed(2),
-    (PT + iH - ((ym + elevA - mn) / rng) * iH).toFixed(2),
+    (padLeft + (xm / d) * innerW).toFixed(2),
+    (padTop + innerH - ((ym + elevA - minElev) / elevRange) * innerH).toFixed(2),
   ];
 
   // Recompute unloaded natural length when params or pair change; also redraw locus

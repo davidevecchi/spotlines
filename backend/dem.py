@@ -27,7 +27,7 @@ from rasterio.warp import Resampling as WarpResampling
 os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
 os.environ.setdefault("CPL_VSIL_CURL_ALLOWED_EXTENSIONS", ".tif")
 
-CACHE_ROOT = Path("/media/pi/WD/.cache/spotfinder")
+CACHE_ROOT = Path("/media/twister/WD/.cache/spotfinder")
 _DEM_DIR   = CACHE_ROOT / "dem"
 
 _CRS_WGS84 = CRS.from_epsg(4326)
