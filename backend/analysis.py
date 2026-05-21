@@ -90,6 +90,70 @@ def _candidates_numpy(
     return np.concatenate(ii_out), np.concatenate(jj_out), np.concatenate(dist_out)
 
 
+def get_distance_candidates(
+    anchors: list[Anchor],
+    min_m: float,
+    max_m: float,
+) -> list[Pair]:
+    """Return all anchor pairs within [min_m, max_m] with no geometry checks."""
+    n = len(anchors)
+    if n < 2:
+        return []
+
+    lats = np.array([a.lat for a in anchors])
+    lons = np.array([a.lon for a in anchors])
+
+    ii, jj, dists = _candidates_numpy(lats, lons, min_m, max_m)
+    if len(ii) == 0:
+        return []
+
+    pairs = []
+    for k in range(len(ii)):
+        a = anchors[int(ii[k])]
+        b = anchors[int(jj[k])]
+        dist = float(dists[k])
+        if b.lon < a.lon or (b.lon == a.lon and b.lat > a.lat):
+            a, b = b, a
+        pairs.append(Pair(a, b, dist, False))
+    return pairs
+
+
+def apply_los_buffer(
+    pairs: list[Pair],
+    element_tree: STRtree,
+    records: list,
+    clearance_m: float = 0.0,
+) -> list[Pair]:
+    """Apply LOS + buffer check to a list of distance-valid pairs.
+
+    Mutates each surviving pair's over_water field in-place.
+    Runs in parallel across up to 4 workers (one contiguous slice each).
+    """
+    n_pairs = len(pairs)
+    if n_pairs == 0:
+        return []
+
+    n_workers = min(os.cpu_count() or 1, 4)
+    chunk_size = max(1, (n_pairs + n_workers - 1) // n_workers)
+
+    def _check_slice(start: int, end: int) -> list[Optional[Pair]]:
+        out = []
+        for p in pairs[start:end]:
+            ok, over_water = check_los(p.anchor_a, p.anchor_b, element_tree, records, clearance_m=clearance_m)
+            if ok:
+                p.over_water = over_water
+                out.append(p)
+            else:
+                out.append(None)
+        return out
+
+    slices = [(i, min(i + chunk_size, n_pairs)) for i in range(0, n_pairs, chunk_size)]
+    with ThreadPoolExecutor(max_workers=n_workers) as pool:
+        chunk_results = pool.map(lambda s: _check_slice(*s), slices)
+
+    return [p for chunk in chunk_results for p in chunk if p is not None]
+
+
 def enumerate_pairs(
     anchors: list[Anchor],
     min_m: float,
@@ -99,43 +163,8 @@ def enumerate_pairs(
     clearance_m: float = 0.0,
     mid_lat: float = 45.0,
 ) -> list[Pair]:
-    n = len(anchors)
-    if n < 2:
-        return []
-
-    lats = np.array([a.lat for a in anchors])
-    lons = np.array([a.lon for a in anchors])
-
-    ii, jj, dists = _candidates_numpy(lats, lons, min_m, max_m)
-    n_cands = len(ii)
-    if n_cands == 0:
-        return []
-
-    # ThreadPoolExecutor.map() ignores chunksize — submit one task per thread instead,
-    # each covering a contiguous slice of candidates to eliminate per-task lock overhead.
-    n_workers = min(os.cpu_count() or 1, 4)
-    chunk_size = max(1, (n_cands + n_workers - 1) // n_workers)
-
-    def _check_slice(start: int, end: int) -> list[Optional[Pair]]:
-        out = []
-        for k in range(start, end):
-            a = anchors[int(ii[k])]
-            b = anchors[int(jj[k])]
-            dist = float(dists[k])
-            ok, over_water = check_los(a, b, element_tree, records, clearance_m=clearance_m)
-            if not ok:
-                out.append(None)
-                continue
-            if b.lon < a.lon or (b.lon == a.lon and b.lat > a.lat):
-                a, b = b, a
-            out.append(Pair(a, b, dist, over_water))
-        return out
-
-    slices = [(i, min(i + chunk_size, n_cands)) for i in range(0, n_cands, chunk_size)]
-    with ThreadPoolExecutor(max_workers=n_workers) as pool:
-        chunk_results = pool.map(lambda s: _check_slice(*s), slices)
-
-    return [p for chunk in chunk_results for p in chunk if p is not None]
+    pairs = get_distance_candidates(anchors, min_m, max_m)
+    return apply_los_buffer(pairs, element_tree, records, clearance_m)
 
 
 

@@ -26,8 +26,8 @@ _WMS          = "https://maps.heigit.org/osmlanduse/wms"
 _LAYER_CLASSIC = "osmlanduse:osm_lulc"
 _LAYER_FILLED  = "osmlanduse:osm_lulc_combined_osm4eo"
 _TIMEOUT = 15
-_MAP_W   = 512
-_MAP_H   = 512
+_MAP_W   = 1024
+_MAP_H   = 1024
 _TTL     = 300   # 5 min
 
 _raster_cache: dict[tuple, tuple] = {}   # bbox_key → (Image RGBA, bytes, expire)
@@ -211,3 +211,76 @@ def sample_landuse_along_line(
     return features
 
 
+def check_landuse_blocker(
+    lat_a: float, lon_a: float,
+    lat_b: float, lon_b: float,
+    south: float, west: float, north: float, east: float,
+    raster: "Image | None",
+    clearance_m: float = 0.0,
+) -> bool:
+    """Return True if any pixel of the corridor rectangle is in a blocking landuse zone.
+
+    Iterates over all pixels whose centres project onto the line segment within
+    the corridor width (clearance_m each side).  Uses a minimum effective width of
+    0.5 m so the centerline pixels are always checked even when clearance_m == 0.
+    """
+    if raster is None:
+        return False
+
+    pixels = raster.load()
+    img_w, img_h = raster.size
+    bbox_w = east - west
+    bbox_h = north - south
+
+    # Pixel coordinates of the two endpoints
+    pax = (lon_a - west) / bbox_w * img_w
+    pay = (north - lat_a) / bbox_h * img_h
+    pbx = (lon_b - west) / bbox_w * img_w
+    pby = (north - lat_b) / bbox_h * img_h
+
+    mid_lat = (lat_a + lat_b) / 2.0
+    eff_clr = max(clearance_m, 0.5)  # metres — ensures at least one pixel column is checked
+
+    # Clearance expressed in pixel units (lat and lon scales differ)
+    clr_py = eff_clr / (bbox_h * 111_111) * img_h
+    cos_ml = max(math.cos(math.radians(mid_lat)), 0.001)
+    clr_px = eff_clr / (bbox_w * 111_111 * cos_ml) * img_w
+
+    # Bounding box of the corridor in pixel space
+    min_px = int(max(0, min(pax, pbx) - clr_px - 1))
+    max_px = int(min(img_w - 1, max(pax, pbx) + clr_px + 1))
+    min_py = int(max(0, min(pay, pby) - clr_py - 1))
+    max_py = int(min(img_h - 1, max(pay, pby) + clr_py + 1))
+
+    dlon = lon_b - lon_a
+    dlat = lat_b - lat_a
+    len2 = dlon * dlon + dlat * dlat
+    if len2 == 0:
+        return False
+
+    for py in range(min_py, max_py + 1):
+        for px in range(min_px, max_px + 1):
+            lon = (px + 0.5) / img_w * bbox_w + west
+            lat = north - (py + 0.5) / img_h * bbox_h
+
+            t = ((lon - lon_a) * dlon + (lat - lat_a) * dlat) / len2
+            if t < 0.0 or t > 1.0:
+                continue
+
+            perp_lon = (lon - lon_a) - t * dlon
+            perp_lat = (lat - lat_a) - t * dlat
+            perp_m = math.sqrt(
+                (perp_lon * 111_111 * math.cos(math.radians(lat))) ** 2
+                + (perp_lat * 111_111) ** 2
+            )
+            if perp_m > eff_clr:
+                continue
+
+            r, g, b, alpha = pixels[px, py]
+            if alpha < 128:
+                continue
+            lu = _nearest_type(r, g, b)
+            if lu and lu not in _ALLOWED:
+                return True
+
+    return False

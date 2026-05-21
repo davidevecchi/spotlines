@@ -11,11 +11,15 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .analysis import compute_corridor_features, compute_corridor_landuse, enumerate_pairs, filter_anchors_by_terrain, filter_landuse_blockers
+from .analysis import (
+    compute_corridor_features, compute_corridor_landuse,
+    filter_anchors_by_terrain, filter_landuse_blockers,
+    get_distance_candidates, apply_los_buffer,
+)
+from .landuse import get_or_fetch_raster, check_landuse_blocker
 from .dem import get_slope_image, get_slope_stats, get_contour_svg, get_elevation_image, get_elevation_stats, get_hillshade_image, get_terrain_image, prefetch_bbox as prefetch_dem
 from .elevation import fetch_elevations
 from .geometry import build_all_indices, get_corridor_features
-from .landuse import get_or_fetch_raster
 from .overpass import fetch_osm, parse_osm
 
 app = FastAPI(title="Spotlines")
@@ -341,40 +345,54 @@ async def get_spots(
         )
         t3 = time.perf_counter()
 
-        yield evt("Finding pairs…", 60)
+        yield evt("Finding distance candidates…", 55)
         pairs = await loop.run_in_executor(None, partial(
-            enumerate_pairs, anchors, min_m, max_m,
-            element_tree, records, clearance_m, mid_lat,
+            get_distance_candidates, anchors, min_m, max_m,
         ))
         t4 = time.perf_counter()
 
         if pairs:
-            yield evt(f"Sampling elevation for {len(pairs)} pairs…", 75)
+            yield evt(f"Sampling elevation for {len(pairs)} candidates…", 60)
             await loop.run_in_executor(None, partial(fetch_elevations, pairs))
+        pairs = [p for p in pairs if p.slope_deg is None or p.slope_deg <= max_slope]
         t5 = time.perf_counter()
+
+        if pairs:
+            yield evt(f"Landuse filter ({len(pairs)} pairs)…", 65)
+            pairs = await loop.run_in_executor(None, partial(
+                _filter_landuse, pairs, raster, south, west, north, east, clearance_m,
+            ))
+        t5a = time.perf_counter()
+
+        if pairs:
+            yield evt(f"LOS check ({len(pairs)} pairs)…", 70)
+            pairs = await loop.run_in_executor(None, partial(
+                apply_los_buffer, pairs, element_tree, records, clearance_m,
+            ))
+        t6 = time.perf_counter()
 
         if water == "only":
             pairs = [p for p in pairs if p.over_water]
         elif water == "exclude":
             pairs = [p for p in pairs if not p.over_water]
-        pairs = [p for p in pairs if p.slope_deg is None or p.slope_deg <= max_slope]
 
         if pairs:
-            yield evt(f"Building corridor features for {len(pairs)} pairs…", 88)
+            yield evt(f"Building corridor features for {len(pairs)} pairs…", 85)
             await loop.run_in_executor(None, partial(compute_corridor_features, pairs, element_tree, records, clearance_m, mid_lat))
             await loop.run_in_executor(None, partial(compute_corridor_landuse, pairs, raster, south, west, north, east))
             pairs = filter_landuse_blockers(pairs)
-        t6 = time.perf_counter()
+        t7 = time.perf_counter()
 
         features = [_pair_to_feature(p) for p in pairs]
-        t7 = time.perf_counter()
+        t8 = time.perf_counter()
 
         print(
             f"TIMING  anchors={len(anchors)}(filtered)  elements={len(elements)}  "
             f"pairs={len(features)} | "
             f"fetch={t1-t0:.2f}s  parse={t2-t1:.2f}s  indices={t3-t2:.2f}s  "
-            f"pairs={t4-t3:.2f}s  elev={t5-t4:.2f}s  "
-            f"corridor={t6-t5:.2f}s  serial={t7-t6:.2f}s  TOTAL={t7-t0:.2f}s",
+            f"dist_cands={t4-t3:.2f}s  elev={t5-t4:.2f}s  "
+            f"landuse_f={t5a-t5:.2f}s  los_buf={t6-t5a:.2f}s  "
+            f"corridor={t7-t6:.2f}s  serial={t8-t7:.2f}s  TOTAL={t8-t0:.2f}s",
             flush=True,
         )
 
@@ -391,6 +409,18 @@ async def get_spots(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+def _filter_landuse(pairs, raster, south, west, north, east, clearance_m):
+    """Run check_landuse_blocker on each pair; return only non-blocked pairs."""
+    return [
+        p for p in pairs
+        if not check_landuse_blocker(
+            p.anchor_a.lat, p.anchor_a.lon,
+            p.anchor_b.lat, p.anchor_b.lon,
+            south, west, north, east, raster, clearance_m,
+        )
+    ]
 
 
 def _pair_to_feature(p) -> dict:
