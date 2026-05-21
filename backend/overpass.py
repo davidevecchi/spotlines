@@ -89,14 +89,7 @@ def _parse_anchors(
     nodes_by_id: dict[int, dict],
     ways_by_id: dict[int, dict],
 ) -> list[Anchor]:
-    """Extract anchor points from OSM elements.
-
-    Currently only tree nodes are supported.  Planned future anchor types:
-      - geological nodes (arch, arete, bare_rock, cave_entrance, cliff, rock, stone)
-      - way-derived: tree_row, guard_rail, forest_edge (node per way-node)
-      - relation-derived: forest_edge (outer-member way nodes)
-    Each would require extending _build_query and adding a pass here.
-    """
+    """Extract anchor points from OSM elements based on feature_map anchor flag."""
     anchors: list[Anchor] = []
     seen: set[int] = set()
 
@@ -105,8 +98,12 @@ def _parse_anchors(
             continue
         tags = el.get("tags") or {}
         nid = el["id"]
-        if tags.get("natural") == "tree" and nid not in seen:
-            anchors.append(Anchor(nid, el["lat"], el["lon"], tags, "tree"))
-            seen.add(nid)
+        if nid in seen:
+            continue
+        for key, val in tags.items():
+            if _fm.props(key, val).get("anchor"):
+                anchors.append(Anchor(nid, el["lat"], el["lon"], tags, val))
+                seen.add(nid)
+                break
 
     return anchors

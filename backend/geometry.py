@@ -21,7 +21,7 @@ EARTH_RADIUS = 6_371_000  # metres
 _POINT_BUF = 0.00002   # ~2 m in degrees
 
 # ---------------------------------------------------------------------------
-# Physical width tables (ported from tests/corridor_raw.py)
+# Physical width tables
 # ---------------------------------------------------------------------------
 
 HIGHWAY_W = {
@@ -36,23 +36,26 @@ HIGHWAY_W = {
     "cycleway": 1.8, "footway": 1.5, "path": 1.0,
     "bridleway": 2.0, "steps": 2.0, "crossing": 4.0,
 }
-BARRIER_W = {
-    "fence": 0.1, "wall": 0.5, "hedge": 1.5,
-    "guard_rail": 0.3, "kerb": 0.1, "gate": 0.1,
-    "bollard": 0.2, "block": 0.5,
-}
 RAILWAY_W = {
     "rail": 1.7, "light_rail": 1.5, "tram": 1.4,
     "subway": 1.5, "narrow_gauge": 1.0,
+}
+POWER_W = {
+    "line": 0.5, "minor_line": 0.5, "cable": 0.5,
 }
 _LANE_W = 3.25
 
 
 def infer_width(tags: dict) -> float:
     """Return total physical width in metres inferred from OSM tags."""
+    return infer_width_with_note(tags)[0]
+
+
+def infer_width_with_note(tags: dict) -> tuple[float, str]:
+    """Return (width_m, source_note) inferred from OSM tags."""
     if "width" in tags:
         try:
-            return float(tags["width"])
+            return float(tags["width"]), f"width={tags['width']}"
         except ValueError:
             pass
     hw = tags.get("highway", "")
@@ -61,30 +64,18 @@ def infer_width(tags: dict) -> float:
             w = float(tags["lanes"]) * _LANE_W
             if hw not in ("footway", "path", "cycleway", "steps", "crossing"):
                 w += 2.0
-            return w
+            return w, f"lanes={tags['lanes']}x{_LANE_W}+shoulders"
         except ValueError:
             pass
     if hw in HIGHWAY_W:
-        return HIGHWAY_W[hw]
-    b = tags.get("barrier", "")
-    if b in BARRIER_W:
-        return BARRIER_W[b]
+        return HIGHWAY_W[hw], f"highway={hw}"
     r = tags.get("railway", "")
     if r in RAILWAY_W:
-        return RAILWAY_W[r]
-    if "building" in tags:
-        return 0.0
-    if tags.get("power") in ("line", "minor_line", "cable"):
-        return 0.5
-    if tags.get("natural") == "tree":
-        try:
-            radius = max(float(tags.get("circumference", 0)) / (2 * math.pi), 0.3)
-        except (ValueError, TypeError):
-            radius = 0.3
-        return radius * 2
-    if any(k in tags for k in ("amenity", "man_made", "emergency")):
-        return 1.0
-    return 0.2
+        return RAILWAY_W[r], f"railway={r}"
+    p = tags.get("power", "")
+    if p in POWER_W:
+        return POWER_W[p], f"power={p}"
+    return 0.2, "default"
 
 
 # ---------------------------------------------------------------------------
@@ -125,17 +116,20 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * EARTH_RADIUS * math.asin(math.sqrt(a))
 
 
-def anchor_buffer_deg(anchor: Anchor) -> float:
-    """Buffer radius in degrees derived from trunk circumference, minimum 0.5 m."""
+def anchor_radius_m(tags: dict) -> float:
+    """Physical radius in metres from circumference tags, minimum 0.5 m."""
     for key in ("circumference", "circumference:est"):
-        val = anchor.tags.get(key)
+        val = tags.get(key)
         if val:
             try:
-                radius_m = float(val) / (2 * math.pi)
-                return max(radius_m, 0.5) / 111_111
+                return max(float(val) / (2 * math.pi), 0.5)
             except ValueError:
                 pass
-    return 0.5 / 111_111
+    return 0.5
+
+
+def anchor_buffer_deg(anchor: Anchor) -> float:
+    return anchor_radius_m(anchor.tags) / 111_111
 
 
 def _node_pt(el: dict) -> Optional[Point]:
@@ -208,11 +202,7 @@ def _format_tag(val: str) -> str:
     return val.replace("_", " ").capitalize()
 
 
-# natural checked last so water=<sub> tags (water=lake, etc.) take precedence
-# over natural=water when both are present on the same element.
-_JSON_LABEL_KEYS: list[str] = sorted(_fm.KEYS - {"natural"}) + (
-    ["natural"] if "natural" in _fm.KEYS else []
-)
+_JSON_LABEL_KEYS: list[str] = sorted(_fm.KEYS)
 
 
 def _classify_flags(tags: dict) -> tuple[bool, bool, bool, bool]:

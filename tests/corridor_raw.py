@@ -17,41 +17,7 @@ from shapely.geometry import LineString, Point, Polygon, MultiPolygon, GeometryC
 from shapely.ops import transform
 import pyproj
 
-from backend.geometry import HIGHWAY_W, BARRIER_W, RAILWAY_W, infer_width as _infer_width
-
-_LANE_W = 3.25  # standard European lane width (m)
-
-
-def infer_width(tags):
-    """Return (total_width_m, source_note) — delegates to backend.geometry.infer_width."""
-    w = _infer_width(tags)
-    # Derive a source note for diagnostic output
-    if "width" in tags:
-        return w, f"width={tags['width']}"
-    hw = tags.get("highway", "")
-    if "lanes" in tags and hw:
-        return w, f"lanes={tags['lanes']}x{_LANE_W}+shoulders"
-    if hw in HIGHWAY_W:
-        return w, f"highway={hw}"
-    b = tags.get("barrier", "")
-    if b in BARRIER_W:
-        return w, f"barrier={b}"
-    r = tags.get("railway", "")
-    if r in RAILWAY_W:
-        return w, f"railway={r}"
-    if "building" in tags:
-        return w, "building polygon"
-    if tags.get("power") in ("line", "minor_line", "cable"):
-        return w, "power line"
-    if tags.get("natural") == "tree":
-        try:
-            radius = max(float(tags.get("circumference", 0)) / (2 * math.pi), 0.3)
-        except (ValueError, TypeError):
-            radius = 0.3
-        return w, f"tree r={radius:.2f}m"
-    if any(k in tags for k in ("amenity", "man_made", "emergency")):
-        return w, "node obstacle"
-    return w, "default"
+from backend.geometry import infer_width_with_note as infer_width, anchor_radius_m as anchor_radius
 
 
 # ── OSM fetch ─────────────────────────────────────────────────────────────────
@@ -76,13 +42,6 @@ out body; >; out skel qt;"""
 
 
 # ── Geometry helpers ──────────────────────────────────────────────────────────
-
-def anchor_radius(tags):
-    """Physical radius of an anchor node in metres."""
-    try:
-        return max(float(tags.get("circumference", 0)) / (2 * math.pi), 0.3)
-    except (ValueError, TypeError):
-        return 0.3
 
 
 def make_corridor(line_utm, half_width, shrink_a=0.0, shrink_b=0.0):
