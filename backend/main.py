@@ -11,8 +11,8 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .analysis import compute_corridor_features, compute_corridor_landuse, enumerate_pairs, filter_landuse_blockers
-from .dem import get_slope_image, get_slope_stats, get_contour_svg, get_elevation_image, get_elevation_stats
+from .analysis import compute_corridor_features, compute_corridor_landuse, enumerate_pairs, filter_anchors_by_terrain, filter_landuse_blockers
+from .dem import get_slope_image, get_slope_stats, get_contour_svg, get_elevation_image, get_elevation_stats, get_hillshade_image, get_terrain_image, prefetch_bbox as prefetch_dem
 from .elevation import fetch_elevations
 from .geometry import build_all_indices, get_corridor_features
 from .landuse import get_or_fetch_raster
@@ -28,8 +28,8 @@ async def slope_stats(
     north: float = Query(...),
     east: float = Query(...),
 ):
-    if abs(north - south) > 0.1 or abs(east - west) > 0.1:
-        raise HTTPException(400, "Bounding box exceeds 0.1° per side")
+    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
+        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
     loop = asyncio.get_running_loop()
     min_deg, max_deg = await loop.run_in_executor(
         None, partial(get_slope_stats, south, west, north, east)
@@ -44,8 +44,8 @@ async def slope_contours(
     north: float = Query(...),
     east: float = Query(...),
 ):
-    if abs(north - south) > 0.1 or abs(east - west) > 0.1:
-        raise HTTPException(400, "Bounding box exceeds 0.1° per side")
+    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
+        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
     loop = asyncio.get_running_loop()
     svg = await loop.run_in_executor(
         None, partial(get_contour_svg, south, west, north, east)
@@ -61,8 +61,8 @@ async def slope_image(
     north: float = Query(...),
     east: float = Query(...),
 ):
-    if abs(north - south) > 0.1 or abs(east - west) > 0.1:
-        raise HTTPException(400, "Bounding box exceeds 0.1° per side")
+    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
+        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
     loop = asyncio.get_running_loop()
     png = await loop.run_in_executor(None, partial(get_slope_image, south, west, north, east))
     return Response(content=png, media_type="image/png")
@@ -75,10 +75,44 @@ async def elevation_image(
     north: float = Query(...),
     east: float = Query(...),
 ):
-    if abs(north - south) > 0.1 or abs(east - west) > 0.1:
-        raise HTTPException(400, "Bounding box exceeds 0.1° per side")
+    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
+        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
     loop = asyncio.get_running_loop()
     png = await loop.run_in_executor(None, partial(get_elevation_image, south, west, north, east))
+    return Response(content=png, media_type="image/png")
+
+
+@app.get("/terrain/image")
+async def terrain_image(
+    south: float = Query(...),
+    west: float = Query(...),
+    north: float = Query(...),
+    east: float = Query(...),
+    elev: int = Query(default=0),
+    slope: int = Query(default=0),
+    hillshade: int = Query(default=0),
+):
+    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
+        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
+    loop = asyncio.get_running_loop()
+    png = await loop.run_in_executor(
+        None, partial(get_terrain_image, south, west, north, east,
+                      bool(elev), bool(slope), bool(hillshade))
+    )
+    return Response(content=png, media_type="image/png")
+
+
+@app.get("/hillshade/image")
+async def hillshade_image(
+    south: float = Query(...),
+    west: float = Query(...),
+    north: float = Query(...),
+    east: float = Query(...),
+):
+    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
+        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
+    loop = asyncio.get_running_loop()
+    png = await loop.run_in_executor(None, partial(get_hillshade_image, south, west, north, east))
     return Response(content=png, media_type="image/png")
 
 
@@ -89,8 +123,8 @@ async def elevation_stats_endpoint(
     north: float = Query(...),
     east: float = Query(...),
 ):
-    if abs(north - south) > 0.1 or abs(east - west) > 0.1:
-        raise HTTPException(400, "Bounding box exceeds 0.1° per side")
+    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
+        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
     loop = asyncio.get_running_loop()
     min_m, max_m = await loop.run_in_executor(
         None, partial(get_elevation_stats, south, west, north, east)
@@ -105,8 +139,8 @@ async def landuse_image(
     north: float = Query(...),
     east: float = Query(...),
 ):
-    if abs(north - south) > 0.1 or abs(east - west) > 0.1:
-        raise HTTPException(400, "Bounding box exceeds 0.1° per side")
+    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
+        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
     loop = asyncio.get_running_loop()
     _, raw = await loop.run_in_executor(
         None, partial(get_or_fetch_raster, south, west, north, east)
@@ -132,8 +166,8 @@ async def debug_rect(
     Each entry: {osm_type, osm_id, tags, is_blocker, is_water, label, category}
     plus a summary of anchor count and record counts.
     """
-    if abs(north - south) > 0.1 or abs(east - west) > 0.1:
-        raise HTTPException(400, "Bounding box exceeds 0.1° per side")
+    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
+        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
     loop = asyncio.get_running_loop()
 
     def _run():
@@ -151,7 +185,7 @@ async def debug_rect(
             items.append({
                 "osm_type": rec.osm_type,
                 "osm_id": rec.osm_id,
-                "is_blocker": rec.is_blocker,
+                "is_blocker": rec.is_los_blocker or rec.is_buf_blocker,
                 "is_water": rec.is_water,
                 "label": rec.label,
                 "category": rec.category,
@@ -254,8 +288,8 @@ async def get_spots(
     max_slope: float = Query(default=5, ge=0, le=90),
     clearance_m: float = Query(default=1, ge=0, le=50),
 ):
-    if abs(north - south) > 0.1 or abs(east - west) > 0.1:
-        raise HTTPException(400, "Bounding box exceeds 0.1° per side")
+    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
+        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
     if water not in ("any", "only", "exclude"):
         raise HTTPException(400, "water must be 'any', 'only', or 'exclude'")
     if min_m >= max_m:
@@ -269,28 +303,36 @@ async def get_spots(
     async def generate():
         t0 = time.perf_counter()
 
-        yield evt("Querying Overpass API…", 3)
+        yield evt("Fetching OSM, DEM, landuse…", 5)
         try:
-            fetch_future = asyncio.ensure_future(
+            osm_fut = asyncio.ensure_future(
                 loop.run_in_executor(None, partial(fetch_osm, south, west, north, east))
             )
+            dem_fut = asyncio.ensure_future(
+                loop.run_in_executor(None, partial(prefetch_dem, south, west, north, east))
+            )
+            raster_fut = asyncio.ensure_future(
+                loop.run_in_executor(None, partial(get_or_fetch_raster, south, west, north, east))
+            )
             t_fetch = time.perf_counter()
-            while not fetch_future.done():
+            while not (osm_fut.done() and dem_fut.done() and raster_fut.done()):
                 await asyncio.sleep(1)
                 elapsed = time.perf_counter() - t_fetch
-                yield "data: " + json.dumps({"status": f"Querying Overpass API… ({elapsed:.0f}s)", "pct": 3}) + "\n\n"
-            data = fetch_future.result()
+                yield "data: " + json.dumps({"status": f"Fetching OSM, DEM, landuse… ({elapsed:.0f}s)", "pct": 5}) + "\n\n"
+            data = osm_fut.result()
+            raster, _raw_png = raster_fut.result()
         except RuntimeError as exc:
             yield "data: " + json.dumps({"error": str(exc)}) + "\n\n"
             return
         t1 = time.perf_counter()
 
         n_el = len(data.get("elements", []))
-        yield evt(f"Parsing {n_el} OSM elements…", 35)
+        yield evt(f"Filtering {n_el} elements…", 30)
         anchors, elements, nodes_by_id, ways_by_id = parse_osm(data)
+        anchors = filter_anchors_by_terrain(anchors, raster, south, west, north, east)
         t2 = time.perf_counter()
 
-        yield evt(f"Building indices ({len(anchors)} anchors)…", 50)
+        yield evt(f"Building spatial index ({len(anchors)} anchors)…", 45)
         geom_cache: dict[tuple[str, int], object] = {}
         mid_lat = (south + north) / 2.0
         (element_tree, records,
@@ -299,19 +341,17 @@ async def get_spots(
         )
         t3 = time.perf_counter()
 
-        yield evt("Enumerating slackline pairs…", 63)
-        pairs = enumerate_pairs(
-            anchors, min_m, max_m,
-            element_tree, records,
-            clearance_m=clearance_m,
-            mid_lat=mid_lat,
-        )
-        t5 = time.perf_counter()
+        yield evt("Finding pairs…", 60)
+        pairs = await loop.run_in_executor(None, partial(
+            enumerate_pairs, anchors, min_m, max_m,
+            element_tree, records, clearance_m, mid_lat,
+        ))
+        t4 = time.perf_counter()
 
         if pairs:
             yield evt(f"Sampling elevation for {len(pairs)} pairs…", 75)
             await loop.run_in_executor(None, partial(fetch_elevations, pairs))
-        t6 = time.perf_counter()
+        t5 = time.perf_counter()
 
         if water == "only":
             pairs = [p for p in pairs if p.over_water]
@@ -320,23 +360,21 @@ async def get_spots(
         pairs = [p for p in pairs if p.slope_deg is None or p.slope_deg <= max_slope]
 
         if pairs:
-            yield evt(f"Building corridor features for {len(pairs)} pairs…", 80)
-            await asyncio.gather(
-                loop.run_in_executor(None, partial(compute_corridor_features, pairs, element_tree, records, clearance_m, mid_lat)),
-                loop.run_in_executor(None, partial(compute_corridor_landuse, pairs, south, west, north, east)),
-            )
+            yield evt(f"Building corridor features for {len(pairs)} pairs…", 88)
+            await loop.run_in_executor(None, partial(compute_corridor_features, pairs, element_tree, records, clearance_m, mid_lat))
+            await loop.run_in_executor(None, partial(compute_corridor_landuse, pairs, raster, south, west, north, east))
             pairs = filter_landuse_blockers(pairs)
-        t_grid = time.perf_counter()
+        t6 = time.perf_counter()
 
         features = [_pair_to_feature(p) for p in pairs]
         t7 = time.perf_counter()
 
         print(
-            f"TIMING  anchors={len(anchors)}  elements={len(elements)}  "
+            f"TIMING  anchors={len(anchors)}(filtered)  elements={len(elements)}  "
             f"pairs={len(features)} | "
-            f"osm={t1-t0:.2f}s  parse={t2-t1:.2f}s  indices={t3-t2:.2f}s  "
-            f"pairs={t5-t3:.2f}s  elev={t6-t5:.2f}s  "
-            f"grid={t_grid-t6:.2f}s  serial={t7-t_grid:.2f}s  TOTAL={t7-t0:.2f}s",
+            f"fetch={t1-t0:.2f}s  parse={t2-t1:.2f}s  indices={t3-t2:.2f}s  "
+            f"pairs={t4-t3:.2f}s  elev={t5-t4:.2f}s  "
+            f"corridor={t6-t5:.2f}s  serial={t7-t6:.2f}s  TOTAL={t7-t0:.2f}s",
             flush=True,
         )
 
@@ -374,6 +412,8 @@ def _pair_to_feature(p) -> dict:
             "anchor_b_tags": p.anchor_b.tags,
             "anchor_a_kind": p.anchor_a.kind,
             "anchor_b_kind": p.anchor_b.kind,
+            "anchor_a_terrain": p.anchor_a.terrain,
+            "anchor_b_terrain": p.anchor_b.terrain,
             "elev_a": p.elev_a,
             "elev_b": p.elev_b,
             "slope_pct": p.slope_pct,

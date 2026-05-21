@@ -427,6 +427,11 @@
             <span>Contours</span>
             <div class="thumb-check">✓</div>
           </div>
+          <div class="layer-thumb" id="ov-hillshade-thumb" onclick="toggleOverlay('hillshade')">
+            <div class="thumb-img" style="background:linear-gradient(135deg,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.1) 55%,rgba(0,0,0,0) 100%),#c8bfb0"></div>
+            <span>Hillshade</span>
+            <div class="thumb-check">✓</div>
+          </div>
           <div class="layer-thumb" id="ov-names-thumb" onclick="toggleOverlay('names')">
             <div class="thumb-img" style="background:#eae6e0"></div>
             <span>Names</span>
@@ -522,20 +527,16 @@ map.createPane('blankPane');
 map.getPane('blankPane').style.zIndex = 399;
 map.getPane('blankPane').style.pointerEvents = 'none';
 
-map.createPane('elevPane');
-map.getPane('elevPane').style.zIndex = 400;
-map.getPane('elevPane').style.pointerEvents = 'none';
-
-map.createPane('heatmapPane');
-map.getPane('heatmapPane').style.zIndex = 401;
-map.getPane('heatmapPane').style.pointerEvents = 'none';
+map.createPane('terrainPane');
+map.getPane('terrainPane').style.zIndex = 400;
+map.getPane('terrainPane').style.pointerEvents = 'none';
 
 map.createPane('landusePane');
-map.getPane('landusePane').style.zIndex = 402;
+map.getPane('landusePane').style.zIndex = 401;
 map.getPane('landusePane').style.pointerEvents = 'none';
 
 map.createPane('contourPane');
-map.getPane('contourPane').style.zIndex = 403;
+map.getPane('contourPane').style.zIndex = 402;
 map.getPane('contourPane').style.pointerEvents = 'none';
 
 map.createPane('linesPane');
@@ -599,8 +600,7 @@ blankThumb.addEventListener('click', () => toggleBase('blank'));
 layerGrid.appendChild(blankThumb);
 
 function _setHeatmapOpacity(full) {
-  slopeLayer.setOpacity(1.0);
-  if (elevLayer) elevLayer.setOpacity(full ? 1.0 : 0.5);
+  if (terrainLayer) terrainLayer.setOpacity(OV_STATE.elev && !full ? 0.6 : 1.0);
 }
 
 let _blankOn = false;
@@ -638,30 +638,16 @@ function toggleBase(key) {
   thumbs.forEach(el => el.classList.toggle('active', el.dataset.key === key));
 }
 
-// ── Slope / contour overlays ─────────────────────────────────────────────────
-const _EMPTY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQAABjE+ibYAAAAASUVORK5CYII=';
-
-function _makeSlopeOverlay(url, bounds) {
-  const l = L.imageOverlay(url, bounds, {
-    opacity: 1.0,
-    pane: 'heatmapPane',
-    attribution: 'Slope &copy; Copernicus GLO-30 / TINItaly INGV',
-  });
-  l.on('add',    () => { _drawnItems.setStyle({ fillOpacity: 0 }); showSlopeLegend(true); });
-  l.on('remove', () => { _drawnItems.setStyle({ fillOpacity: 0.2 }); showSlopeLegend(false); });
-  return l;
-}
-
-let slopeLayer = _makeSlopeOverlay(_EMPTY_PNG, [[0, 0], [0.001, 0.001]]);
+// ── Terrain / contour overlays ───────────────────────────────────────────────
+let terrainLayer = null;
+let _terrainBbox = null;
 let _slopeStats = { min: 0, max: 45 };
 let contourLayer = null;
 let _contourSvgEl = null;
-let _contourZ0 = 0;
-let elevLayer = null;
 let _elevStats = { min: 0, max: 0 };
 
 // Overlay toggle state
-const OV_STATE = { slope: false, elev: false, contour: false, names: false, landuse: false };
+const OV_STATE = { slope: false, elev: false, contour: false, hillshade: false, names: false, landuse: false };
 
 // Landuse: direct WMS tile layer — combined (satellite fills OSM gaps) with
 // the original OSM layer rendered on top so tagged data always takes priority.
@@ -681,11 +667,14 @@ function toggleOverlay(key) {
   OV_STATE[key] = on;
   document.getElementById(`ov-${key}-thumb`).classList.toggle('active', on);
   if (key === 'slope') {
-    if (on) slopeLayer.addTo(map); else map.removeLayer(slopeLayer);
+    _drawnItems.setStyle({ fillOpacity: on ? 0 : 0.2 });
+    showSlopeLegend(on);
+    _rebuildTerrainLayer();
   } else if (key === 'elev') {
-    if (!elevLayer) return;
-    if (on) { elevLayer.addTo(map); showElevLegend(true); }
-    else { map.removeLayer(elevLayer); showElevLegend(false); }
+    showElevLegend(on);
+    _rebuildTerrainLayer();
+  } else if (key === 'hillshade') {
+    _rebuildTerrainLayer();
   } else if (key === 'contour') {
     if (!contourLayer) return;
     if (on) contourLayer.addTo(map); else map.removeLayer(contourLayer);
@@ -701,15 +690,6 @@ function _setOverlayActive(key, on) {
   document.getElementById(`ov-${key}-thumb`).classList.toggle('active', on);
 }
 
-function _updateContourStrokes() {
-  if (!_contourSvgEl) return;
-  const f = Math.pow(2, -(map.getZoom() - _contourZ0) * 0.5);
-  const mg = _contourSvgEl.querySelector('#c-minor');
-  const mj = _contourSvgEl.querySelector('#c-major');
-  if (mg) mg.setAttribute('stroke-width', (1.5 * f).toFixed(3));
-  if (mj) mj.setAttribute('stroke-width', (3 * f).toFixed(3));
-}
-map.on('zoom', _updateContourStrokes);
 
 function updateLanduseLayer(_bbox) {
   // WMS tile layer covers the whole map — no per-bbox refresh needed.
@@ -729,46 +709,49 @@ async function updateContourLayer(bbox) {
     if (!res.ok) return;
     const svgText = await res.text();
     _contourSvgEl = new DOMParser().parseFromString(svgText, 'image/svg+xml').documentElement;
-    _contourZ0 = map.getZoom();
     contourLayer = L.svgOverlay(_contourSvgEl, [[bbox.south, bbox.west], [bbox.north, bbox.east]], { interactive: false, pane: 'contourPane' });
     if (wasOn || OV_STATE.contour) { contourLayer.addTo(map); _setOverlayActive('contour', true); }
   } catch {}
 }
 
-async function updateSlopeLayer(bbox) {
-  const wasOn = map.hasLayer(slopeLayer) || OV_STATE.slope;
-  map.removeLayer(slopeLayer);
-  const url = `/slope/image?south=${bbox.south}&west=${bbox.west}&north=${bbox.north}&east=${bbox.east}`;
-  slopeLayer = _makeSlopeOverlay(url, [[bbox.south, bbox.west], [bbox.north, bbox.east]]);
-  if (wasOn) { slopeLayer.addTo(map); _setOverlayActive('slope', true); }
+function _rebuildTerrainLayer() {
+  if (terrainLayer) { map.removeLayer(terrainLayer); terrainLayer = null; }
+  if (!_terrainBbox) return;
+  const { south, west, north, east } = _terrainBbox;
+  const anyOn = OV_STATE.slope || OV_STATE.elev || OV_STATE.hillshade;
+  if (!anyOn) return;
+  const qs = new URLSearchParams({
+    south, west, north, east,
+    slope: OV_STATE.slope ? 1 : 0,
+    elev: OV_STATE.elev ? 1 : 0,
+    hillshade: OV_STATE.hillshade ? 1 : 0,
+  });
+  const opacity = OV_STATE.elev && !_blankOn ? 0.6 : 1.0;
+  terrainLayer = L.imageOverlay(`/terrain/image?${qs}`, [[south, west], [north, east]], {
+    opacity, pane: 'terrainPane',
+    attribution: 'Terrain &copy; Copernicus GLO-30 / TINItaly INGV',
+  });
+  terrainLayer.addTo(map);
+}
+
+async function updateTerrainLayer(bbox) {
+  _terrainBbox = bbox;
+  _rebuildTerrainLayer();
+  const qs = new URLSearchParams({ south: bbox.south, west: bbox.west, north: bbox.north, east: bbox.east });
   try {
-    const qs = new URLSearchParams({ south: bbox.south, west: bbox.west, north: bbox.north, east: bbox.east });
     const res = await fetch('/slope/stats?' + qs);
     if (res.ok) {
       const { min_deg, max_deg } = await res.json();
       _slopeStats = { min: min_deg, max: max_deg };
-      showSlopeLegend(map.hasLayer(slopeLayer));
+      showSlopeLegend(OV_STATE.slope);
     }
   } catch {}
-}
-
-async function updateElevLayer(bbox) {
-  const wasOn = (elevLayer && map.hasLayer(elevLayer)) || OV_STATE.elev;
-  if (elevLayer) map.removeLayer(elevLayer);
-  const url = `/elevation/image?south=${bbox.south}&west=${bbox.west}&north=${bbox.north}&east=${bbox.east}`;
-  elevLayer = L.imageOverlay(url, [[bbox.south, bbox.west], [bbox.north, bbox.east]], {
-    opacity: _blankOn ? 1.0 : 0.5, pane: 'elevPane',
-    attribution: 'Elevation &copy; Copernicus GLO-30 / TINItaly INGV',
-  });
-  elevLayer.on('remove', () => showElevLegend(false));
-  if (wasOn) { elevLayer.addTo(map); _setOverlayActive('elev', true); }
   try {
-    const qs = new URLSearchParams({ south: bbox.south, west: bbox.west, north: bbox.north, east: bbox.east });
     const res = await fetch('/elevation/stats?' + qs);
     if (res.ok) {
       const { min_m, max_m } = await res.json();
       _elevStats = { min: min_m, max: max_m };
-      showElevLegend(elevLayer && map.hasLayer(elevLayer));
+      showElevLegend(OV_STATE.elev);
     }
   } catch {}
 }
@@ -908,10 +891,9 @@ async function doSearch() {
           const n = geojson.features.length;
           setStatus(`${n} pair${n !== 1 ? 's' : ''} found`);
           drawLegend(realMin, realMax);
-          showSlopeLegend(map.hasLayer(slopeLayer));
-          updateSlopeLayer(_currentBbox);
+          showSlopeLegend(OV_STATE.slope);
+          updateTerrainLayer(_currentBbox);
           updateContourLayer(_currentBbox);
-          updateElevLayer(_currentBbox);
           updateLanduseLayer(_currentBbox);
         }
         if (msg.landuse_update) {
@@ -1263,12 +1245,13 @@ function copyCoords(text, btn) {
   }).catch(() => {});
 }
 
-function anchorCard(label, id, kind, tags, copyBtn) {
+function anchorCard(label, id, kind, tags, copyBtn, terrain) {
   tags = tags || {};
   const rows = [];
   const add = (k, ...keys) => {
     for (const key of keys) if (tags[key]) { rows.push(`<div class="ac-row">${k}: ${tags[key]}</div>`); return; }
   };
+  if (terrain) rows.push(`<div class="ac-row">Terrain: ${terrain.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</div>`);
   add('Species', 'species', 'species:en');
   add('Name', 'name');
   add('Circumference', 'circumference');
@@ -1569,8 +1552,8 @@ function buildDetailHtml(p, coords) {
     ${bearingHtml}
     ${elevSvg(p.terrain_elevs, p.elev_a, p.elev_b, p.corridor_features, p.distance_m)}
     ${corridorSection}
-    ${anchorCard('Anchor A', p.anchor_a_id, p.anchor_a_kind, p.anchor_a_tags, copyA)}
-    ${anchorCard('Anchor B', p.anchor_b_id, p.anchor_b_kind, p.anchor_b_tags, copyB)}
+    ${anchorCard('Anchor A', p.anchor_a_id, p.anchor_a_kind, p.anchor_a_tags, copyA, p.anchor_a_terrain)}
+    ${anchorCard('Anchor B', p.anchor_b_id, p.anchor_b_kind, p.anchor_b_tags, copyB, p.anchor_b_terrain)}
   </div>`;
 }
 

@@ -138,20 +138,20 @@ def enumerate_pairs(
     return [p for chunk in chunk_results for p in chunk if p is not None]
 
 
+
 def compute_corridor_landuse(
     pairs: list[Pair],
+    raster,
     south: float, west: float, north: float, east: float,
 ) -> None:
-    """Append raster-based landuse features to each pair's corridor_features.
-
-    Runs synchronously (raster is cached after the first fetch).
-    """
+    """Append raster-based landuse features to each pair's corridor_features."""
     from .landuse import sample_landuse_along_line
     for p in pairs:
         lu = sample_landuse_along_line(
             p.anchor_a.lat, p.anchor_a.lon,
             p.anchor_b.lat, p.anchor_b.lon,
             south, west, north, east,
+            img=raster,
         )
         if lu:
             p.corridor_features = (p.corridor_features or []) + lu
@@ -179,6 +179,34 @@ def compute_corridor_features(
     with ThreadPoolExecutor(max_workers=n_workers) as pool:
         for p, features in zip(pairs, pool.map(_one, pairs)):
             p.corridor_features = features
+
+
+def filter_anchors_by_terrain(
+    anchors: list,
+    raster,
+    south: float, west: float, north: float, east: float,
+) -> list:
+    """Drop anchors whose position falls in a blocking landuse zone.
+
+    Accepts a pre-fetched PIL RGBA image so no additional HTTP requests are made.
+    """
+    from .landuse import _nearest_type, _ALLOWED
+    if raster is None:
+        return anchors
+    pixels = raster.load()
+    img_w, img_h = raster.size
+    bbox_w = east - west
+    bbox_h = north - south
+    kept = []
+    for a in anchors:
+        px = max(0, min(img_w - 1, int((a.lon - west) / bbox_w * img_w)))
+        py = max(0, min(img_h - 1, int((north - a.lat) / bbox_h * img_h)))
+        r, g, b, alpha = pixels[px, py]
+        lu = _nearest_type(r, g, b) if alpha >= 128 else ""
+        a.terrain = lu
+        if not lu or lu in _ALLOWED:
+            kept.append(a)
+    return kept
 
 
 def filter_landuse_blockers(pairs: list[Pair]) -> list[Pair]:

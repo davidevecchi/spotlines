@@ -181,6 +181,13 @@ def dem_cache_available() -> bool:
     return _DEM_DIR.exists()
 
 
+def prefetch_bbox(south: float, west: float, north: float, east: float) -> None:
+    """Pre-warm the DEM tile cache for all 1°×1° tiles covering the bbox."""
+    for lat_f in range(int(math.floor(south)), int(math.floor(north)) + 1):
+        for lon_f in range(int(math.floor(west)), int(math.floor(east)) + 1):
+            _get_dem_tile(lat_f, lon_f)
+
+
 def get_elevation_at_points(
     lats: list[float], lons: list[float],
 ) -> list[Optional[float]]:
@@ -233,6 +240,24 @@ def _compute_slope(elev: np.ndarray, dy_m: float, dx_m: float) -> np.ndarray:
     dy = np.where(np.isfinite(dy), dy / dy_m, 0.0)
     dx = np.where(np.isfinite(dx), dx / dx_m, 0.0)
     return np.degrees(np.arctan(np.sqrt(dx ** 2 + dy ** 2))).astype(np.float32)
+
+
+def _compute_hillshade(
+    elev: np.ndarray, dy_m: float, dx_m: float,
+    azimuth: float = 315.0, altitude: float = 45.0,
+) -> np.ndarray:
+    """Return hillshade intensity as a 0–1 float32 array (1 = fully lit)."""
+    dy_row, dx_col = np.gradient(elev)
+    dz_de = np.where(np.isfinite(dx_col), dx_col / dx_m, 0.0)
+    dz_dn = np.where(np.isfinite(dy_row), -dy_row / dy_m, 0.0)  # row↑ = south
+    az_rad = math.radians(azimuth)
+    alt_rad = math.radians(altitude)
+    lx = math.cos(alt_rad) * math.sin(az_rad)   # east
+    ly = math.cos(alt_rad) * math.cos(az_rad)   # north
+    lz = math.sin(alt_rad)
+    mag = np.sqrt(dz_de ** 2 + dz_dn ** 2 + 1.0)
+    shade = (-dz_de * lx - dz_dn * ly + lz) / mag
+    return np.clip(shade, 0.0, 1.0).astype(np.float32)
 
 
 def _slope_to_rgba(slope: np.ndarray) -> np.ndarray:
@@ -354,6 +379,69 @@ def get_slope_image(
     return _rgba_to_png(_slope_to_rgba(slope))
 
 
+def get_hillshade_image(
+    south: float, west: float, north: float, east: float,
+    max_px: int = 1024,
+) -> bytes:
+    """Render a hillshade shadow PNG (transparent where lit, dark where shadowed)."""
+    result = _load_slope_data(south, west, north, east, max_px, blur_sigma=0.5)
+    if result is None:
+        return _empty_image(256, 256)
+    elev, _, W, H = result
+    lat_m = (north - south) * 111_111.0
+    lon_m = (east - west) * 111_111.0 * math.cos(math.radians((south + north) / 2.0))
+    shade = _compute_hillshade(elev, lat_m / H, lon_m / W)
+    rgba = np.zeros((H, W, 4), dtype=np.uint8)
+    rgba[:, :, 3] = np.round((1.0 - shade) * 180).astype(np.uint8)
+    rgba[~np.isfinite(elev)] = 0
+    return _rgba_to_png(rgba)
+
+
+def get_terrain_image(
+    south: float, west: float, north: float, east: float,
+    use_elev: bool = True, use_slope: bool = True, use_hillshade: bool = True,
+    max_px: int = 1024,
+) -> bytes:
+    """Composite any combination of elevation, slope and hillshade into one PNG."""
+    if not (use_elev or use_slope or use_hillshade):
+        return _empty_image(256, 256)
+    blur = 0.5 if (use_hillshade or use_slope) else 0.0
+    result = _load_slope_data(south, west, north, east, max_px, blur_sigma=blur)
+    if result is None:
+        return _empty_image(256, 256)
+    elev, slope, W, H = result
+
+    out = np.zeros((H, W, 4), dtype=np.float32)
+
+    if use_elev:
+        valid = elev[np.isfinite(elev)]
+        if len(valid):
+            vmin, vmax = float(np.min(valid)), float(np.max(valid))
+            _get_gist_earth()
+            out = _elev_to_rgba(elev, vmin, vmax).astype(np.float32)
+
+    if use_slope:
+        s = _slope_to_rgba(slope).astype(np.float32)
+        if not use_elev:
+            out = s.copy()
+        else:
+            a = s[:, :, 3:4] / 255.0
+            out[:, :, :3] = out[:, :, :3] * (1.0 - a) + s[:, :, :3] * a
+
+    if use_hillshade:
+        lat_m = (north - south) * 111_111.0
+        lon_m = (east - west) * 111_111.0 * math.cos(math.radians((south + north) / 2.0))
+        shade = _compute_hillshade(elev, lat_m / H, lon_m / W)
+        if use_elev or use_slope:
+            factor = (0.35 + 0.65 * shade)[:, :, np.newaxis]
+            out[:, :, :3] = np.clip(out[:, :, :3] * factor, 0, 255)
+        else:
+            out[:, :, 3] = np.round((1.0 - shade) * 180).astype(np.float32)
+            out[~np.isfinite(elev)] = 0
+
+    return _rgba_to_png(out.astype(np.uint8))
+
+
 def get_slope_stats(
     south: float, west: float, north: float, east: float,
 ) -> tuple[float, float]:
@@ -467,9 +555,11 @@ def get_contour_svg(south: float, west: float, north: float, east: float) -> str
             target.append('<polyline points="' + ' '.join(f'{x:.1f},{y:.1f}' for x, y in seg) + '"/>')
 
     _G = 'stroke="#A0522D" fill="none" stroke-linecap="round" stroke-linejoin="round"'
+    _STYLE = '<style>polyline{vector-effect:non-scaling-stroke}</style>'
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" preserveAspectRatio="none">'
-        f'<g id="c-minor" {_G} stroke-width="2" opacity="1">{"".join(minor_segs)}</g>'
-        f'<g id="c-major" {_G} stroke-width="4" opacity="1">{"".join(major_segs)}</g>'
+        f'{_STYLE}'
+        f'<g id="c-minor" {_G} stroke-width="1">{"".join(minor_segs)}</g>'
+        f'<g id="c-major" {_G} stroke-width="2">{"".join(major_segs)}</g>'
         '</svg>'
     )

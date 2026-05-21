@@ -95,14 +95,15 @@ def infer_width(tags: dict) -> float:
 class OsmRecord:
     """One geometry emitted during the unified classification pass.
 
-    is_blocker and is_water are mutually exclusive (never both True).
+    is_los_blocker / is_buf_blocker track the two corridor zones separately.
+    is_water and the blocker flags are mutually exclusive (water is never blocking).
     anchor_id is non-None only for synthetic anchor trunk buffers.
-    label/category are populated for any element (node, way, or relation)
-    with a human-readable identity (roads, waterways, railways, buildings, etc.).
+    label/category are populated only for JSON-recognised elements.
     tags/osm_id/osm_type carry the raw OSM data for corridor feature extraction.
     """
     geom: object
-    is_blocker: bool
+    is_los_blocker: bool
+    is_buf_blocker: bool
     is_water: bool
     anchor_id: Optional[int]
     label: Optional[str]
@@ -203,59 +204,9 @@ def _element_geom(el: dict, etype: str, nodes_by_id: dict, ways_by_id: dict,
 # Element classification helpers
 # ---------------------------------------------------------------------------
 
-def _classify_blocking(el: dict, etype: str, tags: dict,
-                        nodes_by_id: dict, ways_by_id: dict, _cache: dict | None = None):
-    """Return a blocking Shapely geometry or None."""
-
-    def geom():
-        return _element_geom(el, etype, nodes_by_id, ways_by_id, _cache)
-
-    def node_buf():
-        pt = _node_pt(el)
-        return pt.buffer(_POINT_BUF) if pt else None
-
-    # Pass through only features explicitly allowed by the JSON (los, water, or anchor).
-    for jkey in _fm.KEYS:
-        val = tags.get(jkey)
-        if val is not None and val in _fm.DATA.get(jkey, {}):
-            p = _fm.props(jkey, val)
-            if p.get("los") or p.get("water") or p.get("anchor"):
-                return None
-
-    # Physical node obstacles (benches, bollards, poles, etc.) block with an inferred radius.
-    if etype == "node":
-        if any(k in tags for k in ("amenity", "man_made", "emergency")):
-            pt = _node_pt(el)
-            if pt:
-                radius_deg = infer_width(tags) / 2.0 / 111_111
-                return pt.buffer(radius_deg)
-        return None
-    return geom()
-
-
-def _classify_water(el: dict, etype: str, tags: dict,
-                    nodes_by_id: dict, ways_by_id: dict, _cache: dict | None = None):
-    """Return a water Shapely geometry or None."""
-    for jkey in _fm.KEYS:
-        val = tags.get(jkey)
-        if val is not None and val in _fm.DATA.get(jkey, {}):
-            if _fm.props(jkey, val).get("water"):
-                return _element_geom(el, etype, nodes_by_id, ways_by_id, _cache)
-    return None
-
-
 def _format_tag(val: str) -> str:
     return val.replace("_", " ").capitalize()
 
-
-# Non-JSON OSM keys handled by hardcoded logic.
-# amenity is intentionally excluded: minor values like bench are buffer-only;
-# display-worthy amenity values are enumerated in feature_map.json (los=true).
-_SIMPLE_CATEGORIES = (
-    "highway", "railway", "leisure", "barrier", "man_made",
-    "aeroway", "craft", "healthcare",
-    "military", "office", "public_transport", "shop", "wastewater",
-)
 
 # natural checked last so water=<sub> tags (water=lake, etc.) take precedence
 # over natural=water when both are present on the same element.
@@ -264,22 +215,57 @@ _JSON_LABEL_KEYS: list[str] = sorted(_fm.KEYS - {"natural"}) + (
 )
 
 
-def _feature_label_category(tags: dict, etype: str) -> tuple:
-    """Return (label, category) for corridor display, or (None, None) if not relevant."""
-    name = tags.get("name")
+def _classify_flags(tags: dict) -> tuple[bool, bool, bool, bool]:
+    """Return (is_los_blocker, is_buf_blocker, is_water, is_anchor).
 
+    Looks up the first matching JSON key.  Any value not listed in the JSON
+    produces both blocker flags True (the 'not in JSON → blocks both zones' rule).
+    """
     for jkey in _JSON_LABEL_KEYS:
         val = tags.get(jkey)
         if val is not None and val in _fm.DATA.get(jkey, {}):
             p = _fm.props(jkey, val)
-            if p.get("los") or p.get("water"):
-                return (name or _format_tag(val)), jkey
+            if p.get("anchor"):
+                return False, False, False, True
+            is_water = bool(p.get("water"))
+            return not bool(p.get("los")), not bool(p.get("buffer")), is_water, False
+    return True, True, False, False
 
-    for key in _SIMPLE_CATEGORIES:
-        val = tags.get(key)
-        if val:
-            return (name or _format_tag(val)), key
 
+def _blocking_geom(el: dict, etype: str, tags: dict,
+                   nodes_by_id: dict, ways_by_id: dict,
+                   _cache: dict | None, mid_lat: float):
+    """Return a buffered geometry for blocking elements, or None."""
+    if etype == "node":
+        pt = _node_pt(el)
+        if pt is None:
+            return None
+        radius_deg = infer_width(tags) / 2.0 / 111_111
+        return pt.buffer(max(radius_deg, _POINT_BUF))
+    geom = _element_geom(el, etype, nodes_by_id, ways_by_id, _cache)
+    if geom is None or geom.is_empty:
+        return None
+    if geom.geom_type in ("LineString", "MultiLineString"):
+        half_m = infer_width(tags) / 2.0
+        if half_m > 0:
+            geom = geom.buffer(_clearance_deg(half_m, mid_lat), cap_style=2)
+    return geom
+
+
+def _feature_label_category(tags: dict) -> tuple:
+    """Return (label, category) for corridor display, or (None, None).
+
+    Only emits a label for elements recognised in the JSON (any flag set,
+    excluding anchor-only entries which are handled as geometric anchors).
+    """
+    name = tags.get("name")
+    for jkey in _JSON_LABEL_KEYS:
+        val = tags.get(jkey)
+        if val is not None and val in _fm.DATA.get(jkey, {}):
+            p = _fm.props(jkey, val)
+            if p.get("anchor"):
+                return None, None
+            return (name or _format_tag(val)), jkey
     return None, None
 
 
@@ -305,7 +291,6 @@ def build_all_indices(
         anchor_ids   : list[int] parallel to anchor_geoms
     """
     records: list[OsmRecord] = []
-    raw_tags: dict  # reuse variable in loop
 
     for el in elements:
         raw_tags = el.get("tags") or {}
@@ -314,40 +299,36 @@ def build_all_indices(
         etype = el["type"]
         eid = el["id"]
 
-        bg = _classify_blocking(el, etype, raw_tags, nodes_by_id, ways_by_id, geom_cache)
-        wg = _classify_water(el, etype, raw_tags, nodes_by_id, ways_by_id, geom_cache)
-        label, category = _feature_label_category(raw_tags, etype)
+        is_los_b, is_buf_b, is_water, is_anchor = _classify_flags(raw_tags)
+        if is_anchor:
+            continue  # handled as trunk buffers below
 
-        if bg is not None and not bg.is_empty:
-            if bg.geom_type in ("LineString", "MultiLineString"):
-                half_m = infer_width(raw_tags) / 2.0
-                if half_m > 0:
-                    bg = bg.buffer(_clearance_deg(half_m, mid_lat), cap_style=2)
-            records.append(OsmRecord(
-                bg, True, False, None, label, category,
-                tags=raw_tags, osm_id=eid, osm_type=etype,
-            ))
-        elif wg is not None and not wg.is_empty:
-            records.append(OsmRecord(
-                wg, False, True, None, label, category,
-                tags=raw_tags, osm_id=eid, osm_type=etype,
-            ))
-        elif label is not None:
+        label, category = _feature_label_category(raw_tags)
+
+        if not is_los_b and not is_buf_b and not is_water and label is None:
+            continue  # no classification, no display — skip
+
+        if is_los_b or is_buf_b:
+            geom = _blocking_geom(el, etype, raw_tags, nodes_by_id, ways_by_id, geom_cache, mid_lat)
+        else:
             geom = _element_geom(el, etype, nodes_by_id, ways_by_id, geom_cache)
-            if geom is not None and not geom.is_empty:
-                records.append(OsmRecord(
-                    geom, False, False, None, label, category,
-                    tags=raw_tags, osm_id=eid, osm_type=etype,
-                ))
 
-    # Anchor trunk buffers — synthetic blockers, no tags
+        if geom is None or geom.is_empty:
+            continue
+
+        records.append(OsmRecord(
+            geom, is_los_b, is_buf_b, is_water, None, label, category,
+            tags=raw_tags, osm_id=eid, osm_type=etype,
+        ))
+
+    # Anchor trunk buffers — synthetic blockers for both zones, no tags
     anchor_geoms: list = []
     anchor_ids: list[int] = []
     for a in anchors:
         buf = Point(a.lon, a.lat).buffer(anchor_buffer_deg(a))
         anchor_geoms.append(buf)
         anchor_ids.append(a.id)
-        records.append(OsmRecord(buf, True, False, a.id, None, None))
+        records.append(OsmRecord(buf, True, True, False, a.id, None, None))
 
     element_tree = STRtree([r.geom for r in records])
     anchor_tree = STRtree(anchor_geoms) if anchor_geoms else STRtree([])
@@ -358,9 +339,6 @@ def build_all_indices(
 # ---------------------------------------------------------------------------
 # Line-of-sight
 # ---------------------------------------------------------------------------
-
-_LOS_CENTER_FRAC = 0.8  # fraction of line length (centred) used for LOS and landuse blocking checks
-
 
 def _shrink_line_frac(lon1: float, lat1: float, lon2: float, lat2: float,
                       frac: float) -> LineString:
@@ -373,14 +351,39 @@ def _shrink_line_frac(lon1: float, lat1: float, lon2: float, lat2: float,
 
 
 def _clearance_deg(clearance_m: float, mid_lat: float) -> float:
-    """Convert a clearance distance in metres to degrees at the given latitude.
-
-    Uses the geometric mean of lat/lon m-per-deg so the resulting Shapely buffer
-    is approximately isotropic (equal E-W and N-S clearance in metres).
-    """
+    """Convert a clearance distance in metres to degrees (isotropic geometric mean)."""
     lat_mpd = 111_111.0
     lon_mpd = 111_111.0 * math.cos(math.radians(mid_lat))
     return clearance_m / math.sqrt(lat_mpd * lon_mpd)
+
+
+def _los_rect(a: Anchor, b: Anchor, mid_lat: float) -> Polygon:
+    """Thin rectangle covering the direct line of sight.
+
+    The line is trimmed 0.5 m from each anchor and buffered ±0.25 m laterally,
+    so the endpoints' own trunk discs do not clip the rectangle.
+    """
+    dist_m = haversine_m(a.lat, a.lon, b.lat, b.lon)
+    if dist_m > 1.0:
+        frac = 0.5 / dist_m
+        line = _shrink_line_frac(a.lon, a.lat, b.lon, b.lat, frac)
+    else:
+        line = LineString([(a.lon, a.lat), (b.lon, b.lat)])
+    return line.buffer(_clearance_deg(0.25, mid_lat), cap_style=2)
+
+
+def _lateral_ring(a: Anchor, b: Anchor, mid_lat: float, clearance_m: float):
+    """Two lateral clearance strips flanking the LOS rectangle.
+
+    Covers the central 80% of the line, from 0.25 m to clearance_m each side.
+    Returns None when clearance_m ≤ 0.25 (no lateral zone).
+    """
+    if clearance_m <= 0.25:
+        return None
+    center = _shrink_line_frac(a.lon, a.lat, b.lon, b.lat, 0.1)
+    outer = center.buffer(_clearance_deg(clearance_m, mid_lat), cap_style=2)
+    inner = center.buffer(_clearance_deg(0.25, mid_lat), cap_style=2)
+    return outer.difference(inner)
 
 
 def check_los(
@@ -391,31 +394,30 @@ def check_los(
 ) -> tuple[bool, bool]:
     """Return (passes, over_water).
 
-    Step 1: full centerline must be clear of blockers (anchor buffers at endpoints excluded).
-    Step 2: clearance corridor (80% of line, shrunk from each end) must also be clear.
+    Step 1: LOS rectangle (full length − 0.5 m each end, ±0.25 m wide) must be
+            clear of is_los_blocker elements.
+    Step 2: Lateral buffer ring (central 80%, 0.25 m → clearance_m) must be
+            clear of is_buf_blocker elements.
     """
     endpoints = (a.id, b.id)
-    full = LineString([(a.lon, a.lat), (b.lon, b.lat)])
+    mid_lat = (a.lat + b.lat) / 2.0
 
-    # Step 1: full centerline — any blocker (except own anchor buffers) rejects
-    for idx in element_tree.query(full, predicate="intersects"):
+    los = _los_rect(a, b, mid_lat)
+    for idx in element_tree.query(los, predicate="intersects"):
         rec = records[idx]
-        if rec.is_blocker and rec.anchor_id not in endpoints:
+        if rec.is_los_blocker and rec.anchor_id not in endpoints:
             return False, False
 
-    # Step 2: clearance corridor (central 80%) — physical clearance check
-    if clearance_m > 0:
-        mid_lat = (a.lat + b.lat) / 2.0
-        buf_deg = _clearance_deg(clearance_m, mid_lat)
-        center = _shrink_line_frac(a.lon, a.lat, b.lon, b.lat, (1.0 - _LOS_CENTER_FRAC) / 2)
-        corridor = center.buffer(buf_deg, cap_style=2)
-        for idx in element_tree.query(corridor, predicate="intersects"):
+    lateral = _lateral_ring(a, b, mid_lat, clearance_m)
+    if lateral is not None:
+        for idx in element_tree.query(lateral, predicate="intersects"):
             rec = records[idx]
-            if rec.is_blocker and rec.anchor_id not in endpoints:
+            if rec.is_buf_blocker and rec.anchor_id not in endpoints:
                 return False, False
 
+    full_area = los.union(lateral) if lateral is not None else los
     over_water = any(records[idx].is_water
-                     for idx in element_tree.query(full, predicate="intersects"))
+                     for idx in element_tree.query(full_area, predicate="intersects"))
     return True, over_water
 
 
@@ -453,13 +455,14 @@ def get_corridor_features(
     """Return features intersecting the corridor as [{category, label, is_blocker,
     is_water, tags, segments: [{t_start, t_end}]}].
 
-    One STRtree query on the corridor polygon (rotated rect) → candidate records.
+    Queries the union of the LOS rectangle and the lateral buffer ring.
     Segments are computed by sampling 50 centerline points with the Shapely 2.x
-    intersects() ufunc (vectorised, GIL-free). Features present only in the lateral
-    clearance buffer (not on the centerline) are included with segments=[].
+    intersects() ufunc (vectorised, GIL-free).
     """
-    buf_deg = _clearance_deg(max(clearance_m, 0.5), mid_lat)
-    corridor = LineString([(a.lon, a.lat), (b.lon, b.lat)]).buffer(buf_deg, cap_style=2)
+    los = _los_rect(a, b, mid_lat)
+    lateral = _lateral_ring(a, b, mid_lat, clearance_m)
+    corridor = los.union(lateral) if lateral is not None else los
+
     cand_indices = element_tree.query(corridor, predicate="intersects")
     if len(cand_indices) == 0:
         return []
@@ -488,7 +491,7 @@ def get_corridor_features(
             features.append({
                 "category": rec.category,
                 "label": rec.label,
-                "is_blocker": rec.is_blocker,
+                "is_blocker": rec.is_los_blocker or rec.is_buf_blocker,
                 "is_water": rec.is_water,
                 "tags": rec.tags or {},
                 "segments": segments,

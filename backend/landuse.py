@@ -15,13 +15,16 @@ import math
 import time
 from threading import Lock
 
+from concurrent.futures import ThreadPoolExecutor
+
 import requests
 from PIL import Image
 
 log = logging.getLogger(__name__)
 
-_WMS     = "https://maps.heigit.org/osmlanduse/wms"
-_LAYER   = "osmlanduse:osm_lulc_combined_osm4eo"
+_WMS          = "https://maps.heigit.org/osmlanduse/wms"
+_LAYER_CLASSIC = "osmlanduse:osm_lulc"
+_LAYER_FILLED  = "osmlanduse:osm_lulc_combined_osm4eo"
 _TIMEOUT = 15
 _MAP_W   = 512
 _MAP_H   = 512
@@ -82,6 +85,23 @@ def _bbox_key(s, w, n, e):
 
 # ── Raster fetch / cache ──────────────────────────────────────────────────────
 
+def _fetch_layer(layer: str, bbox_str: str) -> Image.Image | None:
+    params = {
+        "SERVICE": "WMS", "VERSION": "1.1.1", "REQUEST": "GetMap",
+        "LAYERS": layer, "STYLES": "",
+        "FORMAT": "image/png", "TRANSPARENT": "TRUE",
+        "WIDTH": _MAP_W, "HEIGHT": _MAP_H,
+        "BBOX": bbox_str, "SRS": "EPSG:3857",
+    }
+    try:
+        resp = requests.get(_WMS, params=params, timeout=_TIMEOUT)
+        resp.raise_for_status()
+        return Image.open(io.BytesIO(resp.content)).convert("RGBA")
+    except Exception as exc:
+        log.warning("GetMap %s failed: %s", layer, exc)
+        return None
+
+
 def get_or_fetch_raster(south, west, north, east) -> tuple[Image.Image | None, bytes | None]:
     """Return (PIL Image RGBA, raw PNG bytes), fetching and caching as needed."""
     key = _bbox_key(south, west, north, east)
@@ -93,21 +113,26 @@ def get_or_fetch_raster(south, west, north, east) -> tuple[Image.Image | None, b
 
     x0, y0 = _to_merc(south, west)
     x1, y1 = _to_merc(north, east)
-    params = {
-        "SERVICE": "WMS", "VERSION": "1.1.1", "REQUEST": "GetMap",
-        "LAYERS": _LAYER, "STYLES": "",
-        "FORMAT": "image/png", "TRANSPARENT": "TRUE",
-        "WIDTH": _MAP_W, "HEIGHT": _MAP_H,
-        "BBOX": f"{x0},{y0},{x1},{y1}", "SRS": "EPSG:3857",
-    }
-    try:
-        resp = requests.get(_WMS, params=params, timeout=_TIMEOUT)
-        resp.raise_for_status()
-        raw = resp.content
-        img = Image.open(io.BytesIO(raw)).convert("RGBA")
-    except Exception as exc:
-        log.warning("GetMap failed: %s", exc)
+    bbox_str = f"{x0},{y0},{x1},{y1}"
+
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        f_classic = ex.submit(_fetch_layer, _LAYER_CLASSIC, bbox_str)
+        f_filled  = ex.submit(_fetch_layer, _LAYER_FILLED,  bbox_str)
+        classic, filled = f_classic.result(), f_filled.result()
+
+    if classic is None and filled is None:
         return None, None
+
+    if classic is None:
+        img = filled
+    elif filled is None:
+        img = classic
+    else:
+        img = Image.composite(classic, filled, classic.getchannel("A"))
+
+    raw = io.BytesIO()
+    img.save(raw, format="PNG")
+    raw = raw.getvalue()
 
     expire = time.time() + _TTL
     with _lock:
@@ -118,19 +143,23 @@ def get_or_fetch_raster(south, west, north, east) -> tuple[Image.Image | None, b
     return img, raw
 
 
+
 def sample_landuse_along_line(
     lat_a: float, lon_a: float,
     lat_b: float, lon_b: float,
     south: float, west: float, north: float, east: float,
+    img: "Image | None" = None,
     n: int = 50,
 ) -> list[dict]:
-    """Sample the cached landuse raster along the centerline.
+    """Sample the landuse raster along the centerline.
 
+    `img` may be a pre-fetched PIL RGBA image; if None the raster is fetched.
     Returns corridor features in the same {category, label, is_blocker, is_water,
     tags, segments} format as get_corridor_features.  Consecutive samples with
     the same classification are merged into a single segment.
     """
-    img, _ = get_or_fetch_raster(south, west, north, east)
+    if img is None:
+        img, _ = get_or_fetch_raster(south, west, north, east)
     if img is None:
         return []
 

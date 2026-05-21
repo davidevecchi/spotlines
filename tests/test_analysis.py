@@ -29,14 +29,14 @@ def _empty_indices():
 
 
 def _blocker_indices(geom, anchor_id=None):
-    """Return (element_tree, records) with a single blocking geometry."""
-    rec = OsmRecord(geom, True, False, anchor_id, None, None)
+    """Return (element_tree, records) with a single blocking geometry (blocks both zones)."""
+    rec = OsmRecord(geom, True, True, False, anchor_id, None, None)
     return STRtree([rec.geom]), [rec]
 
 
 def _water_indices(geom):
     """Return (element_tree, records) with a single water geometry."""
-    rec = OsmRecord(geom, False, True, None, None, None)
+    rec = OsmRecord(geom, False, False, True, None, None, None)
     return STRtree([rec.geom]), [rec]
 
 
@@ -161,8 +161,8 @@ def test_check_los_endpoint_anchor_not_blocked():
     b = _make_anchor(2, 45.0, 11.0003)
     buf_a = Point(a.lon, a.lat).buffer(anchor_buffer_deg(a))
     buf_b = Point(b.lon, b.lat).buffer(anchor_buffer_deg(b))
-    rec_a = OsmRecord(buf_a, True, False, a.id, None, None)
-    rec_b = OsmRecord(buf_b, True, False, b.id, None, None)
+    rec_a = OsmRecord(buf_a, True, True, False, a.id, None, None)
+    rec_b = OsmRecord(buf_b, True, True, False, b.id, None, None)
     records = [rec_a, rec_b]
     element_tree = STRtree([r.geom for r in records])
     ok, over_water = check_los(a, b, element_tree, records, clearance_m=0)
@@ -174,7 +174,7 @@ def test_check_los_intermediate_anchor_blocks():
     mid = _make_anchor(99, 45.0, 11.00015)
     b = _make_anchor(2, 45.0, 11.0003)
     buf_mid = Point(mid.lon, mid.lat).buffer(0.001)
-    rec_mid = OsmRecord(buf_mid, True, False, mid.id, None, None)
+    rec_mid = OsmRecord(buf_mid, True, True, False, mid.id, None, None)
     records = [rec_mid]
     element_tree = STRtree([r.geom for r in records])
     ok, _ = check_los(a, b, element_tree, records, clearance_m=0)
@@ -232,7 +232,7 @@ def _anchor_records(anchors):
     records = []
     for a in anchors:
         buf = Point(a.lon, a.lat).buffer(anchor_buffer_deg(a))
-        records.append(OsmRecord(buf, True, False, a.id, None, None))
+        records.append(OsmRecord(buf, True, True, False, a.id, None, None))
     return records
 
 
@@ -351,87 +351,78 @@ def test_slope_calculation():
     assert abs(slope_deg - 5.7) < 0.15
 
 
-# ── geometry: blocking classification ────────────────────────────────────────
+# ── geometry: classification flags ───────────────────────────────────────────
 
-from backend.geometry import _classify_blocking, _classify_water
+from backend.geometry import _classify_flags, _blocking_geom
 
-def test_classify_blocking_highway_major_blocks():
-    el = {"type": "way", "id": 1, "nodes": [1, 2], "tags": {"highway": "motorway"}}
-    nodes = {1: {"lat": 45.0, "lon": 11.0}, 2: {"lat": 45.001, "lon": 11.001}}
-    g = _classify_blocking(el, "way", el["tags"], nodes, {})
-    assert g is not None
+def test_classify_flags_highway_major_both_blockers():
+    # motorway not listed in JSON → both zones blocked
+    is_los_b, is_buf_b, is_water, is_anchor = _classify_flags({"highway": "motorway"})
+    assert is_los_b is True
+    assert is_buf_b is True
 
-def test_classify_blocking_highway_path_blocks():
-    # path has los=False in the JSON — not LOS-allowed
-    el = {"type": "way", "id": 1, "nodes": [1, 2], "tags": {"highway": "path"}}
-    nodes = {1: {"lat": 45.0, "lon": 11.0}, 2: {"lat": 45.001, "lon": 11.001}}
-    g = _classify_blocking(el, "way", el["tags"], nodes, {})
-    assert g is not None
+def test_classify_flags_highway_path_los_blocker_only():
+    # path: los=false, buffer=true → blocks LOS but not buffer
+    is_los_b, is_buf_b, is_water, is_anchor = _classify_flags({"highway": "path"})
+    assert is_los_b is True
+    assert is_buf_b is False
 
-def test_classify_blocking_highway_node_ignored():
+def test_classify_flags_highway_node_blocks():
+    # bus_stop not listed in JSON → both blockers (physical presence)
+    is_los_b, is_buf_b, _, _ = _classify_flags({"highway": "bus_stop"})
+    assert is_los_b is True
+    assert is_buf_b is True
+
+def test_blocking_geom_highway_node_returns_buffer():
     el = {"type": "node", "id": 1, "lat": 45.0, "lon": 11.0, "tags": {"highway": "bus_stop"}}
-    g = _classify_blocking(el, "node", el["tags"], {}, {})
-    assert g is None
-
-def test_classify_blocking_building_node_ignored():
-    el = {"type": "node", "id": 1, "lat": 45.0, "lon": 11.0, "tags": {"building": "yes"}}
-    g = _classify_blocking(el, "node", el["tags"], {}, {})
-    assert g is None
-
-def test_classify_blocking_barrier_kerb_blocks():
-    # kerb is not in the JSON allowlist — blocks as a way
-    el = {"type": "way", "id": 1, "nodes": [1, 2], "tags": {"barrier": "kerb"}}
-    nodes = {1: {"lat": 45.0, "lon": 11.0}, 2: {"lat": 45.001, "lon": 11.001}}
-    g = _classify_blocking(el, "way", el["tags"], nodes, {})
+    g = _blocking_geom(el, "node", el["tags"], {}, {}, None, 45.0)
     assert g is not None
 
-def test_classify_blocking_barrier_fence_blocks():
-    el = {"type": "way", "id": 1, "nodes": [1, 2], "tags": {"barrier": "fence"}}
-    nodes = {1: {"lat": 45.0, "lon": 11.0}, 2: {"lat": 45.001, "lon": 11.001}}
-    g = _classify_blocking(el, "way", el["tags"], nodes, {})
-    assert g is not None
+def test_classify_flags_barrier_fence_both_blockers():
+    # barrier not in JSON → both blockers
+    is_los_b, is_buf_b, _, _ = _classify_flags({"barrier": "fence"})
+    assert is_los_b is True
+    assert is_buf_b is True
 
-def test_classify_blocking_leisure_park_allowed():
-    el = {"type": "way", "id": 1, "nodes": [1, 2, 3, 1], "tags": {"leisure": "park"}}
-    nodes = {1: {"lat": 45.0, "lon": 11.0}, 2: {"lat": 45.001, "lon": 11.0}, 3: {"lat": 45.001, "lon": 11.001}}
-    g = _classify_blocking(el, "way", el["tags"], nodes, {})
-    assert g is None
+def test_classify_flags_leisure_park_not_blocking():
+    # park: los=true, buffer=true → neither zone blocked
+    is_los_b, is_buf_b, is_water, _ = _classify_flags({"leisure": "park"})
+    assert is_los_b is False
+    assert is_buf_b is False
+    assert is_water is False
 
-def test_classify_blocking_railway_active_blocks():
-    el = {"type": "way", "id": 1, "nodes": [1, 2], "tags": {"railway": "rail"}}
-    nodes = {1: {"lat": 45.0, "lon": 11.0}, 2: {"lat": 45.001, "lon": 11.001}}
-    g = _classify_blocking(el, "way", el["tags"], nodes, {})
-    assert g is not None
+def test_classify_flags_railway_active_both_blockers():
+    # rail not listed in JSON (only abandoned/disused are) → both blockers
+    is_los_b, is_buf_b, _, _ = _classify_flags({"railway": "rail"})
+    assert is_los_b is True
+    assert is_buf_b is True
 
-def test_classify_blocking_railway_abandoned_allowed():
-    el = {"type": "way", "id": 1, "nodes": [1, 2], "tags": {"railway": "abandoned"}}
-    nodes = {1: {"lat": 45.0, "lon": 11.0}, 2: {"lat": 45.001, "lon": 11.001}}
-    g = _classify_blocking(el, "way", el["tags"], nodes, {})
-    assert g is None
+def test_classify_flags_railway_abandoned_not_blocking():
+    # abandoned: los=true → not blocking
+    is_los_b, is_buf_b, _, _ = _classify_flags({"railway": "abandoned"})
+    assert is_los_b is False
+    assert is_buf_b is False
 
-def test_classify_blocking_railway_active_blocks():
-    el = {"type": "way", "id": 1, "nodes": [1, 2], "tags": {"railway": "rail"}}
-    nodes = {1: {"lat": 45.0, "lon": 11.0}, 2: {"lat": 45.001, "lon": 11.001}}
-    g = _classify_blocking(el, "way", el["tags"], nodes, {})
-    assert g is not None
+def test_classify_flags_waterway_river_is_water():
+    is_los_b, is_buf_b, is_water, _ = _classify_flags({"waterway": "river"})
+    assert is_water is True
+    assert is_los_b is False
+    assert is_buf_b is False
 
-def test_classify_water_waterway():
-    el = {"type": "way", "id": 1, "nodes": [1, 2], "tags": {"waterway": "river"}}
-    nodes = {1: {"lat": 45.0, "lon": 11.0}, 2: {"lat": 45.001, "lon": 11.001}}
-    g = _classify_water(el, "way", el["tags"], nodes, {})
-    assert g is not None
+def test_classify_flags_waterway_dock_not_water():
+    # dock not listed in JSON → both blockers, not water
+    is_los_b, is_buf_b, is_water, _ = _classify_flags({"waterway": "dock"})
+    assert is_water is False
+    assert is_los_b is True
 
-def test_classify_water_dock_not_water():
-    el = {"type": "way", "id": 1, "nodes": [1, 2, 3, 1], "tags": {"waterway": "dock"}}
-    nodes = {1: {"lat": 45.0, "lon": 11.0}, 2: {"lat": 45.001, "lon": 11.0}, 3: {"lat": 45.001, "lon": 11.001}}
-    g = _classify_water(el, "way", el["tags"], nodes, {})
-    assert g is None
+def test_classify_flags_natural_water_is_water():
+    is_los_b, _, is_water, _ = _classify_flags({"natural": "water"})
+    assert is_water is True
+    assert is_los_b is False
 
-def test_classify_water_natural_water():
-    el = {"type": "way", "id": 1, "nodes": [1, 2, 3, 1], "tags": {"natural": "water"}}
-    nodes = {1: {"lat": 45.0, "lon": 11.0}, 2: {"lat": 45.001, "lon": 11.0}, 3: {"lat": 45.001, "lon": 11.001}}
-    g = _classify_water(el, "way", el["tags"], nodes, {})
-    assert g is not None
+def test_classify_flags_natural_tree_is_anchor():
+    _, _, _, is_anchor = _classify_flags({"natural": "tree"})
+    assert is_anchor is True
 
 
 # ── tile_bbox ─────────────────────────────────────────────────────────────────

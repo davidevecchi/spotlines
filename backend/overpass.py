@@ -21,6 +21,7 @@ class Anchor:
     lon: float
     tags: dict
     kind: str  # tree  (guard_rail | tree_row | forest_edge | geological disabled)
+    terrain: str = ""
 
 
 def fetch_osm(south: float, west: float, north: float, east: float) -> dict:
@@ -55,39 +56,8 @@ def fetch_osm(south: float, west: float, north: float, east: float) -> dict:
 
 def _build_query(south: float, west: float, north: float, east: float) -> str:
     b = f"{south},{west},{north},{east}"
-    # Build natural value filter from the feature map; always include tree.
-    _nat_vals = sorted(_fm.DATA.get("natural", {}).keys())
-    if "tree" not in _nat_vals:
-        _nat_vals.insert(0, "tree")
-    _nat_re = "|".join(_nat_vals)
-    return f"""[out:json][timeout:60];
-(
-  node[natural=tree]({b});
-  nwr[natural~"^({_nat_re})$"]({b});
-  nwr[aerialway]({b});
-  nwr[aeroway]({b});
-  nwr[amenity]({b});
-  nwr[barrier]({b});
-  nwr[building]({b});
-  nwr[craft]({b});
-  nwr[emergency]({b});
-  nwr[healthcare]({b});
-  way[highway]({b});
-  nwr[historic]({b});
-  nwr[leisure]({b});
-  nwr[man_made]({b});
-  nwr[military]({b});
-  nwr[office]({b});
-  way[power~"^(line|minor_line|cable)$"]({b});
-  nwr[public_transport]({b});
-  way[railway]({b});
-  nwr[shop]({b});
-  way[telecom=line]({b});
-  nwr[tourism]({b});
-  nwr[wastewater]({b});
-  nwr[waterway]({b});
-);
-out body; >; out skel qt;"""
+    parts = [f"  nwr[{key}]({b});" for key in _fm.DATA]
+    return "[out:json][timeout:60];\n(\n" + "\n".join(parts) + "\n);\nout body; >; out skel qt;"
 
 
 def parse_osm(
