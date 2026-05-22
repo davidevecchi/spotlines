@@ -264,6 +264,8 @@
     /* Hide default attribution Leaflet controls that conflict */
     .leaflet-top.leaflet-left { top: 10px; left: 280px; }
     .leaflet-top.leaflet-right { top: 10px; right: 60px; }
+    .sl-chev { display:inline-block;transition:transform 0.15s;margin-right:4px;font-style:normal }
+    details[open] > summary .sl-chev { transform:rotate(90deg) }
   </style>
 </head>
 <body>
@@ -459,6 +461,12 @@
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
 <script>
+// ── Feature metadata (loaded from backend) ───────────────────────────────────
+let _landuseTypes = {};
+fetch('/landuse/types').then(r => r.json()).then(d => { _landuseTypes = d; }).catch(() => {});
+let _overpasFeatures = {};
+fetch('/overpass/features').then(r => r.json()).then(d => { _overpasFeatures = d; }).catch(() => {});
+
 // ── Constants ────────────────────────────────────────────────────────────────
 const MAX_SLOPE_DEG  = 45;      // slope colour scale ceiling (matches backend)
 const GRAVITY        = 9.81;    // m/s²
@@ -1129,28 +1137,18 @@ function closeDetail() {
   document.getElementById('detail-content').innerHTML = '';
 }
 
-// ── Helpers: terrain colours ─────────────────────────────────────────────────
-// OSM key → display color (no handcrafted terrain vocabulary)
-const OSM_KEY_COLORS = {
-  natural:          '#166534', landuse:          '#854d0e', leisure:    '#4d7c0f',
-  waterway:         '#0369a1', highway:          '#6b7280', railway:    '#7c3aed',
-  building:         '#92400e', amenity:          '#0e7490', barrier:    '#374151',
-  power:            '#d97706', man_made:         '#57534e', telecom:    '#0891b2',
-  aeroway:          '#475569', craft:            '#a16207', emergency:  '#dc2626',
-  healthcare:       '#0d9488', historic:         '#b45309', military:   '#365314',
-  office:           '#6d28d9', public_transport: '#2563eb', shop:       '#db2777',
-  tourism:          '#ea580c', wastewater:       '#4b5563',
-  osmlanduse: '#1e293b', natural_water: '#0369a1',
-};
-
 function featureColor(f) {
   if (!f) return '#64748b';
-  return OSM_KEY_COLORS[f.category] || '#64748b';
+  if (f.category === 'osmlanduse') {
+    const key = (f.label || '').toLowerCase().replace(/\s+/g, '_');
+    return _landuseTypes[key]?.color || '#64748b';
+  }
+  return _overpasFeatures[f.category]?.color || '#64748b';
 }
 
 function featureLabel(f) {
   if (!f) return '';
-  if (f.label) return f.label;
+  if (f.label) return f.name ? `${f.label}: ${f.name}` : f.label;
   return f.category || '';
 }
 
@@ -1158,10 +1156,12 @@ function _escXml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// Return corridor features that overlap t (0–1 along line)
+const _PLACE_CATS = new Set(['place', 'boundary']);
+
+// Return corridor features that overlap t (0–1 along line), excluding place/boundary
 function featuresAtT(features, t) {
   if (!features) return [];
-  return features.filter(f => f.segments && f.segments.some(s => s.t_start <= t && t <= s.t_end));
+  return features.filter(f => !_PLACE_CATS.has(f.category) && f.segments && f.segments.some(s => s.t_start <= t && t <= s.t_end));
 }
 
 
@@ -1398,10 +1398,11 @@ function elevSvg(terrain, elevA, elevB, corridorFeatures, distance_m, W, H) {
     }
   }
 
-  // Terrain strips from corridor_features segments
+  // Terrain strips from corridor_features segments (exclude place/boundary)
   let strips = '', terrainBand = '', terrainLabels = '';
   if (corridorFeatures && corridorFeatures.length) {
     for (const feat of corridorFeatures) {
+      if (_PLACE_CATS.has(feat.category)) continue;
       const col = featureColor(feat);
       for (const seg of (feat.segments || [])) {
         const x1 = PL + seg.t_start * iW, x2 = PL + seg.t_end * iW;
@@ -1487,29 +1488,47 @@ function buildSelectedTooltip(p, t) {
   return `<div class="tip-dist">${distPart}${terrainPart}</div>`;
 }
 
-function buildCorridorFeatureList(feats, distance_m) {
+function buildCorridorFeatureList(feats) {
   if (!feats || !feats.length) return '';
   let rows = '';
+  // Aggregate features by (category, label) so duplicate entries from OSM+landuse merge
+  const merged = [];
+  const mergeKey = f => `${f.category}|${featureLabel(f)}`;
+  const seen = new Map();
   for (const f of feats) {
+    const k = mergeKey(f);
+    if (seen.has(k)) {
+      const m = merged[seen.get(k)];
+      for (const s of (f.segments || [])) m.segments.push(s);
+    } else {
+      seen.set(k, merged.length);
+      merged.push({ ...f, segments: [...(f.segments || [])] });
+    }
+  }
+
+  for (const f of merged) {
     const col = featureColor(f);
-    const segs = (f.segments || []).map(s => {
-      const t0 = s.t_start, t1 = s.t_end;
-      const m0 = Math.round(t0 * distance_m), m1 = Math.round(t1 * distance_m);
-      const barX = (t0 * 100).toFixed(1), barW = Math.max((t1 - t0) * 100, 0.5).toFixed(1);
-      return `<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:#57534e;margin-top:1px">` +
-        `<div style="position:relative;flex:1;height:5px;background:rgba(180,140,90,0.15);border-radius:2px;overflow:hidden">` +
-        `<div style="position:absolute;left:${barX}%;width:${barW}%;height:100%;background:${col};opacity:0.75;border-radius:2px"></div></div>` +
-        `<span style="white-space:nowrap;font-variant-numeric:tabular-nums">${m0}–${m1} m</span></div>`;
-    }).join('');
+    const segsArr = (f.segments || []).slice().sort((a, b) => a.t_start - b.t_start);
     const flagBlocker = f.is_blocker ? '<span style="color:#dc2626;font-size:9px;margin-left:4px">blocker</span>' : '';
     const flagWater   = f.is_water   ? '<span style="color:#0369a1;font-size:9px;margin-left:4px">water</span>'   : '';
-    const noSegs = (!f.segments || !f.segments.length)
-      ? `<div style="font-size:10px;color:#a8a29e;margin-top:1px">buffer zone only</div>` : '';
+
+    let barHtml = '';
+    if (segsArr.length) {
+      const fills = segsArr.map(s => {
+        const barX = (s.t_start * 100).toFixed(1);
+        const barW = Math.max((s.t_end - s.t_start) * 100, 0.5).toFixed(1);
+        return `<div style="position:absolute;left:${barX}%;width:${barW}%;height:100%;background:${col};opacity:0.75;border-radius:2px"></div>`;
+      }).join('');
+      barHtml = `<div style="margin-top:2px;position:relative;height:5px;background:rgba(180,140,90,0.15);border-radius:2px;overflow:hidden">${fills}</div>`;
+    }
+
+    const valuePart = f.label ? _escXml(f.label) : _escXml(f.category || '');
+    const namePart  = f.label && f.name ? `<span style="font-weight:400">: ${_escXml(f.name)}</span>` : '';
+    const keyPart   = f.label ? `<span style="color:#a8a29e;font-weight:400;font-size:9px;margin-left:4px">${_escXml(f.category||'')}</span>` : '';
     rows += `<div style="margin-bottom:5px">` +
-      `<div style="font-size:10px;font-weight:600;color:${col}">${_escXml(featureLabel(f))}` +
-      `<span style="color:#a8a29e;font-weight:400;font-size:9px;margin-left:4px">${_escXml(f.category||'')}</span>` +
+      `<div style="font-size:10px;font-weight:600;color:${col}">${valuePart}${namePart}${keyPart}` +
       flagBlocker + flagWater + `</div>` +
-      segs + noSegs + `</div>`;
+      barHtml + `</div>`;
   }
   return `<div style="margin-top:4px;padding:7px 8px;background:rgba(0,0,0,0.03);border-radius:5px;border:1px solid rgba(180,140,90,0.15)">${rows}</div>`;
 }
@@ -1535,11 +1554,18 @@ function buildDetailHtml(p, coords) {
     ? ` <span style="font-size:12px;font-weight:400;color:#78716c">${sDir}${p.slope_deg}°</span>`
     : '';
   const feats = p.corridor_features || [];
-  const corridorSection = feats.length
-    ? `<div style="margin-top:8px;border-top:1px solid rgba(180,140,90,0.15);padding-top:7px">` +
-      `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#a8a29e;margin-bottom:4px">In corridor</div>` +
-      buildCorridorFeatureList(feats, p.distance_m) + `</div>`
-    : '';
+  const corridorFeats = feats.filter(f => !_PLACE_CATS.has(f.category));
+  const placeFeats    = feats.filter(f =>  _PLACE_CATS.has(f.category));
+  const _collapseCard = (title, list, open) => {
+    if (!list.length) return '';
+    const openAttr = open ? ' open' : '';
+    return `<details${openAttr} style="margin-top:8px;border-top:1px solid rgba(180,140,90,0.15);padding-top:7px">` +
+      `<summary style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#a8a29e;margin-bottom:4px;cursor:pointer;list-style:none;-webkit-appearance:none">` +
+      `<i class="sl-chev">›</i>` + title + `</summary>` +
+      buildCorridorFeatureList(list) + `</details>`;
+  };
+  const corridorSection = _collapseCard('In corridor', corridorFeats, true) +
+                          _collapseCard('Places', placeFeats, false);
 
   return `<div class="sl-detail">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:2px">

@@ -16,7 +16,8 @@ from .analysis import (
     filter_anchors_by_terrain, filter_landuse_blockers,
     get_distance_candidates, apply_los_buffer,
 )
-from .landuse import get_or_fetch_raster, check_landuse_blocker
+from .landuse import get_or_fetch_raster, check_landuse_blocker, _TYPES as _LANDUSE_TYPES
+from .feature_map import OVERPASS_DATA as _OVERPASS_FEATURES
 from .dem import get_slope_image, get_slope_stats, get_contour_svg, get_elevation_image, get_elevation_stats, get_hillshade_image, get_terrain_image, prefetch_bbox as prefetch_dem
 from .elevation import fetch_elevations
 from .geometry import build_all_indices, get_corridor_features
@@ -134,6 +135,16 @@ async def elevation_stats_endpoint(
         None, partial(get_elevation_stats, south, west, north, east)
     )
     return {"min_m": min_m, "max_m": max_m}
+
+
+@app.get("/landuse/types")
+async def landuse_types():
+    return _LANDUSE_TYPES
+
+
+@app.get("/overpass/features")
+async def overpass_features_endpoint():
+    return _OVERPASS_FEATURES
 
 
 @app.get("/landuse/image")
@@ -379,7 +390,7 @@ async def get_spots(
         if pairs:
             yield evt(f"Building corridor features for {len(pairs)} pairs…", 85)
             await loop.run_in_executor(None, partial(compute_corridor_features, pairs, element_tree, records, clearance_m, mid_lat))
-            await loop.run_in_executor(None, partial(compute_corridor_landuse, pairs, raster, south, west, north, east))
+            await loop.run_in_executor(None, partial(compute_corridor_landuse, pairs, raster, south, west, north, east, clearance_m))
             pairs = filter_landuse_blockers(pairs)
         t7 = time.perf_counter()
 
@@ -402,7 +413,7 @@ async def get_spots(
             + "\n\n"
         )
 
-        yield evt("Done.", 100)
+        yield evt(f"Done. {len(features)} line{'s' if len(features) != 1 else ''} found.", 100)
 
     return StreamingResponse(
         generate(),

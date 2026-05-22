@@ -10,8 +10,10 @@ Legend extracted from:
 from __future__ import annotations
 
 import io
+import json
 import logging
 import math
+import pathlib
 import time
 from threading import Lock
 
@@ -34,14 +36,17 @@ _raster_cache: dict[tuple, tuple] = {}   # bbox_key → (Image RGBA, bytes, expi
 _lock = Lock()
 
 
+# ── Type metadata from osmlanduse.json ───────────────────────────────────────
+
+_TYPES: dict = json.loads(
+    (pathlib.Path(__file__).parent / "osmlanduse.json").read_text()
+)
+_ALLOWED: frozenset[str] = frozenset(k for k, v in _TYPES.items() if v["allowed"])
+_WATER:   frozenset[str] = frozenset(k for k, v in _TYPES.items() if v["water"])
+
 # ── Legend palette ────────────────────────────────────────────────────────────
 # Exact colours extracted from the WMS GetLegendGraphic PNG, mapped to short
 # lowercase type labels consistent with existing OSM-based obs entries.
-
-_ALLOWED: frozenset[str] = frozenset({
-    "arable", "forest", "park", "meadow", "scrub",
-    "water", "bare", "wetland", "coastal_wetland",
-})
 
 _PALETTE: list[tuple[tuple[int, int, int], str]] = [
     ((230,   0,  77), "urban"),           # Urban fabric
@@ -150,13 +155,18 @@ def sample_landuse_along_line(
     south: float, west: float, north: float, east: float,
     img: "Image | None" = None,
     n: int = 50,
+    clearance_m: float = 0.0,
 ) -> list[dict]:
-    """Sample the landuse raster along the centerline.
+    """Sample the landuse raster across the full corridor rectangle.
+
+    Samples a 2-D grid: n points along the line × 7 perpendicular offsets
+    spanning ±clearance_m.  For each unique landuse category, records which
+    t-indices have that category at any offset, then run-length encodes into
+    contiguous segments.  Multiple categories can overlap at the same t range.
 
     `img` may be a pre-fetched PIL RGBA image; if None the raster is fetched.
     Returns corridor features in the same {category, label, is_blocker, is_water,
-    tags, segments} format as get_corridor_features.  Consecutive samples with
-    the same classification are merged into a single segment.
+    tags, segments} format as get_corridor_features.
     """
     if img is None:
         img, _ = get_or_fetch_raster(south, west, north, east)
@@ -168,45 +178,64 @@ def sample_landuse_along_line(
     bbox_w = east - west
     bbox_h = north - south
 
-    types: list[str] = []
-    for i in range(n):
-        t = i / (n - 1)
-        lat = lat_a + t * (lat_b - lat_a)
-        lon = lon_a + t * (lon_b - lon_a)
-        px = int((lon - west) / bbox_w * img_w)
-        py = int((north - lat) / bbox_h * img_h)
-        px = max(0, min(img_w - 1, px))
-        py = max(0, min(img_h - 1, py))
-        r, g, b, a = pixels[px, py]
-        types.append(_nearest_type(r, g, b) if a >= 128 else "")
+    mid_lat = (lat_a + lat_b) / 2
+    cos_ml = max(math.cos(math.radians(mid_lat)), 0.001)
+
+    # Perpendicular unit vector in degrees
+    dlat_m = (lat_b - lat_a) * 111_111
+    dlon_m = (lon_b - lon_a) * 111_111 * cos_ml
+    length_m = max(math.sqrt(dlat_m ** 2 + dlon_m ** 2), 5.0)
+    perp_lat_deg = -dlon_m / length_m / 111_111
+    perp_lon_deg =  dlat_m / length_m / (111_111 * cos_ml)
+
+    if clearance_m > 0:
+        w_offsets = [clearance_m * k / 3 for k in range(-3, 4)]  # 7 offsets
+    else:
+        w_offsets = [0.0]
 
     ts = [i / (n - 1) for i in range(n)]
-    features: list[dict] = []
-    seen: dict[str, int] = {}
 
-    i = 0
-    while i < n:
-        lu = types[i]
-        if not lu:
-            i += 1
-            continue
-        j = i + 1
-        while j < n and types[j] == lu:
-            j += 1
-        seg = {"t_start": round(ts[i], 3), "t_end": round(ts[j - 1], 3)}
-        if lu in seen:
-            features[seen[lu]]["segments"].append(seg)
-        else:
-            seen[lu] = len(features)
+    # cat_present[lu] is a boolean list indexed by t; True if lu seen at any offset
+    cat_present: dict[str, list[bool]] = {}
+
+    for i, t in enumerate(ts):
+        clat = lat_a + t * (lat_b - lat_a)
+        clon = lon_a + t * (lon_b - lon_a)
+        for w in w_offsets:
+            lat = clat + w * perp_lat_deg
+            lon = clon + w * perp_lon_deg
+            px = max(0, min(img_w - 1, int((lon - west) / bbox_w * img_w)))
+            py = max(0, min(img_h - 1, int((north - lat) / bbox_h * img_h)))
+            r, g, b, a = pixels[px, py]
+            lu = _nearest_type(r, g, b) if a >= 128 else ""
+            if lu:
+                if lu not in cat_present:
+                    cat_present[lu] = [False] * n
+                cat_present[lu][i] = True
+
+    features: list[dict] = []
+    for lu, present in cat_present.items():
+        segs: list[dict] = []
+        in_seg = False
+        start = 0
+        for i, hit in enumerate(present):
+            if hit and not in_seg:
+                in_seg, start = True, i
+            elif not hit and in_seg:
+                in_seg = False
+                segs.append({"t_start": round(ts[start], 3), "t_end": round(ts[i - 1], 3)})
+        if in_seg:
+            segs.append({"t_start": round(ts[start], 3), "t_end": round(ts[n - 1], 3)})
+        if segs:
             features.append({
-                "category": "landuse",
+                "category": "osmlanduse",
                 "label": lu.replace("_", " ").capitalize(),
+                "name": None,
                 "is_blocker": lu not in _ALLOWED,
-                "is_water": lu in {"water", "wetland", "coastal_wetland"},
+                "is_water": lu in _WATER,
                 "tags": {},
-                "segments": [seg],
+                "segments": segs,
             })
-        i = j
 
     return features
 

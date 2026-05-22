@@ -8,7 +8,7 @@ from typing import Optional
 import numpy as np
 import shapely as _shapely_ufuncs
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon
-from shapely.ops import unary_union
+from shapely.ops import polygonize, unary_union
 from shapely.strtree import STRtree
 from shapely.validation import make_valid
 
@@ -98,6 +98,7 @@ class OsmRecord:
     is_water: bool
     anchor_id: Optional[int]
     label: Optional[str]
+    name: Optional[str]
     category: Optional[str]
     tags: Optional[dict] = None
     osm_id: Optional[int] = None
@@ -170,6 +171,20 @@ def _relation_geom(rel: dict, ways_by_id: dict, nodes_by_id: dict):
     if not geoms:
         return None
     result = unary_union(geoms)
+    # Multipolygon relations often have their outer ring split into open ways,
+    # which become LineStrings. Polygonize them so the geometry is filled area,
+    # not just boundary lines.
+    if result.geom_type in ("LineString", "MultiLineString"):
+        polys = list(polygonize(result))
+        if polys:
+            result = unary_union(polys)
+    elif result.geom_type == "GeometryCollection":
+        lines = [g for g in result.geoms if g.geom_type in ("LineString", "MultiLineString")]
+        polys = [g for g in result.geoms if g.geom_type.endswith("Polygon")]
+        if lines:
+            polys.extend(polygonize(unary_union(lines)))
+        if polys:
+            result = unary_union(polys)
     if not result.is_valid:
         result = make_valid(result)
     return result
@@ -213,7 +228,7 @@ def _classify_flags(tags: dict) -> tuple[bool, bool, bool, bool]:
     """
     for jkey in _JSON_LABEL_KEYS:
         val = tags.get(jkey)
-        if val is not None and val in _fm.DATA.get(jkey, {}):
+        if val is not None and _fm.covered(jkey, val):
             p = _fm.props(jkey, val)
             if p.get("anchor"):
                 return False, False, False, True
@@ -243,20 +258,16 @@ def _blocking_geom(el: dict, etype: str, tags: dict,
 
 
 def _feature_label_category(tags: dict) -> tuple:
-    """Return (label, category) for corridor display, or (None, None).
-
-    Only emits a label for elements recognised in the JSON (any flag set,
-    excluding anchor-only entries which are handled as geometric anchors).
-    """
+    """Return (label, category) for corridor display, or (None, None)."""
     name = tags.get("name")
     for jkey in _JSON_LABEL_KEYS:
         val = tags.get(jkey)
-        if val is not None and val in _fm.DATA.get(jkey, {}):
+        if val is not None and _fm.covered(jkey, val):
             p = _fm.props(jkey, val)
             if p.get("anchor"):
-                return None, None
-            return (name or _format_tag(val)), jkey
-    return None, None
+                return None, None, None
+            return _format_tag(val), name, jkey
+    return None, None, None
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +304,7 @@ def build_all_indices(
         if is_anchor:
             continue  # handled as trunk buffers below
 
-        label, category = _feature_label_category(raw_tags)
+        label, osm_name, category = _feature_label_category(raw_tags)
 
         if not is_los_b and not is_buf_b and not is_water and label is None:
             continue  # no classification, no display — skip
@@ -302,12 +313,15 @@ def build_all_indices(
             geom = _blocking_geom(el, etype, raw_tags, nodes_by_id, ways_by_id, geom_cache, mid_lat)
         else:
             geom = _element_geom(el, etype, nodes_by_id, ways_by_id, geom_cache)
+            if geom is not None and not geom.is_empty and geom.geom_type == "Point":
+                radius_deg = infer_width(raw_tags) / 2.0 / 111_111
+                geom = geom.buffer(max(radius_deg, _POINT_BUF))
 
         if geom is None or geom.is_empty:
             continue
 
         records.append(OsmRecord(
-            geom, is_los_b, is_buf_b, is_water, None, label, category,
+            geom, is_los_b, is_buf_b, is_water, None, label, osm_name, category,
             tags=raw_tags, osm_id=eid, osm_type=etype,
         ))
 
@@ -318,7 +332,7 @@ def build_all_indices(
         buf = Point(a.lon, a.lat).buffer(anchor_buffer_deg(a))
         anchor_geoms.append(buf)
         anchor_ids.append(a.id)
-        records.append(OsmRecord(buf, True, True, False, a.id, None, None))
+        records.append(OsmRecord(buf, True, True, False, a.id, None, None, None))
 
     element_tree = STRtree([r.geom for r in records])
     anchor_tree = STRtree(anchor_geoms) if anchor_geoms else STRtree([])
@@ -348,32 +362,20 @@ def _clearance_deg(clearance_m: float, mid_lat: float) -> float:
 
 
 def _los_rect(a: Anchor, b: Anchor, mid_lat: float) -> Polygon:
-    """Thin rectangle covering the direct line of sight.
-
-    The line is trimmed 0.5 m from each anchor and buffered ±0.25 m laterally,
-    so the endpoints' own trunk discs do not clip the rectangle.
-    """
-    dist_m = haversine_m(a.lat, a.lon, b.lat, b.lon)
-    if dist_m > 1.0:
-        frac = 0.5 / dist_m
-        line = _shrink_line_frac(a.lon, a.lat, b.lon, b.lat, frac)
-    else:
-        line = LineString([(a.lon, a.lat), (b.lon, b.lat)])
+    """Thin rectangle covering the full direct line of sight, buffered ±0.25 m laterally."""
+    line = LineString([(a.lon, a.lat), (b.lon, b.lat)])
     return line.buffer(_clearance_deg(0.25, mid_lat), cap_style=2)
 
 
-def _lateral_ring(a: Anchor, b: Anchor, mid_lat: float, clearance_m: float):
-    """Two lateral clearance strips flanking the LOS rectangle.
+def _buffer_rect(a: Anchor, b: Anchor, mid_lat: float, clearance_m: float):
+    """Rectangle covering the central 80% of the line, ±clearance_m wide.
 
-    Covers the central 80% of the line, from 0.25 m to clearance_m each side.
-    Returns None when clearance_m ≤ 0.25 (no lateral zone).
+    Returns None when clearance_m ≤ 0.0 (no buffer zone).
     """
-    if clearance_m <= 0.25:
+    if clearance_m <= 0.0:
         return None
     center = _shrink_line_frac(a.lon, a.lat, b.lon, b.lat, 0.1)
-    outer = center.buffer(_clearance_deg(clearance_m, mid_lat), cap_style=2)
-    inner = center.buffer(_clearance_deg(0.25, mid_lat), cap_style=2)
-    return outer.difference(inner)
+    return center.buffer(_clearance_deg(clearance_m, mid_lat), cap_style=2)
 
 
 def check_los(
@@ -398,7 +400,7 @@ def check_los(
         if rec.is_los_blocker and rec.anchor_id not in endpoints:
             return False, False
 
-    lateral = _lateral_ring(a, b, mid_lat, clearance_m)
+    lateral = _buffer_rect(a, b, mid_lat, clearance_m)
     if lateral is not None:
         for idx in element_tree.query(lateral, predicate="intersects"):
             rec = records[idx]
@@ -412,27 +414,42 @@ def check_los(
 
 
 # ---------------------------------------------------------------------------
-# Corridor feature extraction (replaces hex-grid sampling)
+# Corridor feature extraction
 # ---------------------------------------------------------------------------
 
-_N_CENTERLINE = 50  # sample points along the centerline for segment computation
+def _intersection_to_t_segments(intersection, baseline: LineString) -> list[dict]:
+    """Project an intersection geometry onto the normalized baseline → [{t_start, t_end}]."""
+    if intersection is None or intersection.is_empty:
+        return []
 
+    sub: list[tuple[float, float]] = []
 
-def _hits_to_segments(hits: np.ndarray, ts: np.ndarray) -> list[dict]:
-    """Convert a boolean hit array to [{t_start, t_end}] run-length segments."""
-    segments: list[dict] = []
-    in_seg = False
-    t_start = 0.0
-    for i, hit in enumerate(hits):
-        if hit and not in_seg:
-            t_start = float(ts[i])
-            in_seg = True
-        elif not hit and in_seg:
-            segments.append({"t_start": round(t_start, 3), "t_end": round(float(ts[i - 1]), 3)})
-            in_seg = False
-    if in_seg:
-        segments.append({"t_start": round(t_start, 3), "t_end": round(float(ts[-1]), 3)})
-    return segments
+    def _add(g):
+        coords = _shapely_ufuncs.get_coordinates(g)
+        if len(coords) == 0:
+            return
+        pts = _shapely_ufuncs.points(coords[:, 0], coords[:, 1])
+        ts = np.clip(_shapely_ufuncs.line_locate_point(baseline, pts, normalized=True), 0.0, 1.0)
+        sub.append((float(ts.min()), float(ts.max())))
+
+    if hasattr(intersection, "geoms"):
+        for g in intersection.geoms:
+            _add(g)
+    else:
+        _add(intersection)
+
+    if not sub:
+        return []
+
+    sub.sort()
+    merged: list[list[float]] = [list(sub[0])]
+    for s, e in sub[1:]:
+        if s <= merged[-1][1] + 1e-4:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+
+    return [{"t_start": round(s, 3), "t_end": round(e, 3)} for s, e in merged]
 
 
 def get_corridor_features(
@@ -445,47 +462,60 @@ def get_corridor_features(
     """Return features intersecting the corridor as [{category, label, is_blocker,
     is_water, tags, segments: [{t_start, t_end}]}].
 
-    Queries the union of the LOS rectangle and the lateral buffer ring.
-    Segments are computed by sampling 50 centerline points with the Shapely 2.x
-    intersects() ufunc (vectorised, GIL-free).
+    Segments are derived by intersecting each feature geometry with the corridor
+    polygon and projecting the result onto the normalized baseline — no sampling.
     """
     los = _los_rect(a, b, mid_lat)
-    lateral = _lateral_ring(a, b, mid_lat, clearance_m)
+    lateral = _buffer_rect(a, b, mid_lat, clearance_m)
     corridor = los.union(lateral) if lateral is not None else los
 
     cand_indices = element_tree.query(corridor, predicate="intersects")
     if len(cand_indices) == 0:
         return []
 
-    dlon = b.lon - a.lon
-    dlat = b.lat - a.lat
-    ts = np.linspace(0.0, 1.0, _N_CENTERLINE)
-    sample_pts = _shapely_ufuncs.points(a.lon + ts * dlon, a.lat + ts * dlat)
+    baseline = LineString([(a.lon, a.lat), (b.lon, b.lat)])
 
     features: list[dict] = []
-    seen: dict[tuple, int] = {}  # (category, label) → index in features
+    seen: dict[tuple, int] = {}
 
     for idx in cand_indices:
         rec = records[idx]
         if rec.anchor_id is not None or rec.category is None:
             continue
 
-        hits = _shapely_ufuncs.intersects(rec.geom, sample_pts)
-        segments = _hits_to_segments(hits, ts) if np.any(hits) else []
+        try:
+            intersection = rec.geom.intersection(corridor)
+        except Exception:
+            continue
 
-        key = (rec.category, rec.label)
+        segments = _intersection_to_t_segments(intersection, baseline)
+
+        key = (rec.category, rec.label, rec.name)
         if key in seen:
-            features[seen[key]]["segments"].extend(segments)
+            existing = features[seen[key]]["segments"]
+            existing.extend(segments)
         else:
             seen[key] = len(features)
             features.append({
                 "category": rec.category,
                 "label": rec.label,
+                "name": rec.name,
                 "is_blocker": rec.is_los_blocker or rec.is_buf_blocker,
                 "is_water": rec.is_water,
                 "tags": rec.tags or {},
                 "segments": segments,
             })
+
+    # Merge overlapping segments within each feature and sort by first appearance
+    for f in features:
+        segs = sorted(f["segments"], key=lambda s: s["t_start"])
+        merged: list[dict] = []
+        for s in segs:
+            if merged and s["t_start"] <= merged[-1]["t_end"] + 1e-4:
+                merged[-1]["t_end"] = max(merged[-1]["t_end"], s["t_end"])
+            else:
+                merged.append(dict(s))
+        f["segments"] = merged
 
     features.sort(key=lambda f: f["segments"][0]["t_start"] if f["segments"] else 2.0)
     return features

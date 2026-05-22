@@ -56,7 +56,7 @@ def fetch_osm(south: float, west: float, north: float, east: float) -> dict:
 
 def _build_query(south: float, west: float, north: float, east: float) -> str:
     b = f"{south},{west},{north},{east}"
-    parts = [f"  nwr[{key}]({b});" for key in _fm.DATA]
+    parts = [f"  nwr[{key}]({b});" for key in sorted(_fm.ALL_KEYS)]
     return "[out:json][timeout:60];\n(\n" + "\n".join(parts) + "\n);\nout body; >; out skel qt;"
 
 
