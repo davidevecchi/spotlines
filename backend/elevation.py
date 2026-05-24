@@ -37,7 +37,7 @@ def fetch_elevations(pairs: list[Pair]) -> None:
     lons: list[float] = []
     for pts in pair_points:
         for lat, lon in pts:
-            k = (round(lat, 5), round(lon, 5))
+            k = (round(lat, 7), round(lon, 7))
             if k not in key_to_idx:
                 key_to_idx[k] = len(lats)
                 lats.append(lat)
@@ -95,7 +95,7 @@ def _assign(
     for pair, pts in zip(pairs, pair_points):
         terrain: list[Optional[float]] = []
         for lat, lon in pts:
-            k = (round(lat, 5), round(lon, 5))
+            k = (round(lat, 7), round(lon, 7))
             e = elevs[key_to_idx[k]]
             terrain.append(round(e, 1) if e is not None else None)
 

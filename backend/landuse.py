@@ -112,6 +112,10 @@ def get_or_fetch_raster(south, west, north, east) -> tuple[Image.Image | None, b
     key = _bbox_key(south, west, north, east)
     now = time.time()
     with _lock:
+        # Prune expired entries on every call (hit or miss) to prevent unbounded growth
+        stale = [k for k, v in _raster_cache.items() if v[2] <= now]
+        for k in stale:
+            del _raster_cache[k]
         cached = _raster_cache.get(key)
         if cached and cached[2] > now:
             return cached[0], cached[1]
@@ -133,7 +137,11 @@ def get_or_fetch_raster(south, west, north, east) -> tuple[Image.Image | None, b
     elif filled is None:
         img = classic
     else:
-        img = Image.composite(classic, filled, classic.getchannel("A"))
+        # Hard-threshold the classic alpha before compositing so partial-alpha
+        # pixels (anti-aliased tile edges) don't produce blended RGB values that
+        # fall outside every palette entry and are silently treated as unblocked.
+        mask = classic.getchannel("A").point(lambda p: 255 if p >= 128 else 0)
+        img = Image.composite(classic, filled, mask)
 
     raw = io.BytesIO()
     img.save(raw, format="PNG")
@@ -142,9 +150,6 @@ def get_or_fetch_raster(south, west, north, east) -> tuple[Image.Image | None, b
     expire = time.time() + _TTL
     with _lock:
         _raster_cache[key] = (img, raw, expire)
-        stale = [k for k, v in _raster_cache.items() if v[2] <= now]
-        for k in stale:
-            del _raster_cache[k]
     return img, raw
 
 
@@ -283,8 +288,13 @@ def check_landuse_blocker(
 
     dlon = lon_b - lon_a
     dlat = lat_b - lat_a
-    len2 = dlon * dlon + dlat * dlat
-    if len2 == 0:
+    # Use metric coordinates for the t-projection: raw degree values have different
+    # physical lengths per axis at non-equatorial latitudes, so degree dot-products
+    # give wrong t values for diagonal corridors (up to ~0.35 m endpoint error).
+    dlon_m = dlon * 111_111 * cos_ml
+    dlat_m = dlat * 111_111
+    len2_m = dlon_m * dlon_m + dlat_m * dlat_m
+    if len2_m == 0:
         return False
 
     for py in range(min_py, max_py + 1):
@@ -292,7 +302,9 @@ def check_landuse_blocker(
             lon = (px + 0.5) / img_w * bbox_w + west
             lat = north - (py + 0.5) / img_h * bbox_h
 
-            t = ((lon - lon_a) * dlon + (lat - lat_a) * dlat) / len2
+            px_m = (lon - lon_a) * 111_111 * cos_ml
+            py_m = (lat - lat_a) * 111_111
+            t = (px_m * dlon_m + py_m * dlat_m) / len2_m
             if t < 0.0 or t > 1.0:
                 continue
 

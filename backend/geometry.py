@@ -355,10 +355,14 @@ def _shrink_line_frac(lon1: float, lat1: float, lon2: float, lat2: float,
 
 
 def _clearance_deg(clearance_m: float, mid_lat: float) -> float:
-    """Convert a clearance distance in metres to degrees (isotropic geometric mean)."""
-    lat_mpd = 111_111.0
-    lon_mpd = 111_111.0 * math.cos(math.radians(mid_lat))
-    return clearance_m / math.sqrt(lat_mpd * lon_mpd)
+    """Convert a clearance distance in metres to degrees.
+
+    Uses the longitude m/degree (the shorter axis at non-equatorial latitudes) so
+    the Shapely buffer is never under-sized in any direction.  The latitude direction
+    receives a conservatively larger buffer, which is safe for a LOS/clearance check.
+    """
+    lon_mpd = max(111_111.0 * math.cos(math.radians(mid_lat)), 1.0)
+    return clearance_m / lon_mpd
 
 
 def _los_rect(a: Anchor, b: Anchor, mid_lat: float) -> Polygon:

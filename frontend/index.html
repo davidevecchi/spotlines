@@ -30,7 +30,7 @@
       width: 320px; display: flex; flex-direction: column; gap: 8px;
       pointer-events: none; z-index: 1000;
     }
-    #panel-filters { pointer-events: all; flex-shrink: 0; padding: 13px 14px; }
+    #panel-filters { pointer-events: all; flex-shrink: 0; padding: 0; }
     #panel-detail  { pointer-events: all; flex: 1; min-height: 0; overflow-y: auto;
                      display: none; padding: 12px 14px; position: relative; }
 
@@ -57,9 +57,95 @@
       font-size: 11px; font-weight: 700; letter-spacing: 0.09em;
       text-transform: uppercase; color: #57534e; margin-bottom: 11px;
     }
+
+    /* App header inside filter panel */
+    .app-header {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 0;
+    }
+    .app-logo {
+      width: 28px; height: 22px; flex-shrink: 0;
+      color: #b45309;
+    }
+    .app-name {
+      font-size: 15px; font-weight: 700; letter-spacing: -0.02em;
+      color: #1c1917; line-height: 1;
+    }
+    .app-name span {
+      display: block; font-size: 9px; font-weight: 500;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      color: #78716c; margin-top: 1px;
+    }
+
+    /* Section separator */
+    .section-sep {
+      border: none; border-top: 1px solid rgba(180,140,90,0.18);
+      margin: 12px 0;
+    }
+
+    /* Panel sections with hairline dividers */
+    .panel-section {
+      padding: 7px 14px;
+    }
+    .panel-section + .panel-section {
+      border-top: 1px solid rgba(180,140,90,0.22);
+    }
+    .section-hint {
+      margin-left: auto;
+      font-size: 10px; font-weight: 400;
+      letter-spacing: 0; text-transform: none;
+      color: #78716c;
+    }
+
+    /* Status chip */
+    #status {
+      margin-top: 8px; font-size: 11px; line-height: 1.4; min-height: 22px;
+      padding: 3px 9px; border-radius: 20px; display: inline-flex;
+      align-items: center; gap: 5px;
+      background: rgba(0,0,0,0.04); color: #78716c;
+      transition: background 0.2s, color 0.2s;
+    }
+    #status::before {
+      content: ''; display: inline-block; width: 6px; height: 6px;
+      border-radius: 50%; background: currentColor; flex-shrink: 0;
+      opacity: 0.5;
+    }
+    #status[data-state="ready"]   { background: #d1fae5; color: #065f46; }
+    #status[data-state="ready"]::before { opacity: 1; }
+    #status[data-state="loading"] { background: #dbeafe; color: #1e40af; }
+    #status[data-state="loading"]::before { animation: pulse-dot 1s ease-in-out infinite; opacity: 1; }
+    #status[data-state="done"]    { background: #d1fae5; color: #065f46; }
+    #status[data-state="done"]::before { opacity: 1; }
+    #status[data-state="error"]   { background: #fee2e2; color: #991b1b; }
+    #status[data-state="error"]::before { opacity: 1; }
+    @keyframes pulse-dot {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50%       { transform: scale(1.6); opacity: 0.6; }
+    }
+
+    /* Section collapsibles */
+    .section-details {
+      margin-bottom: 0;
+    }
+    .section-details summary {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.09em;
+      text-transform: uppercase; color: #57534e;
+      cursor: pointer; list-style: none; display: flex;
+      align-items: center; gap: 5px; user-select: none;
+      padding: 5px 0 6px;
+    }
+    .section-details summary::-webkit-details-marker { display: none; }
+    .section-details summary::before {
+      content: '▸'; font-size: 8px; color: #a8a29e;
+      transition: transform 0.18s; display: inline-block;
+    }
+    .section-details[open] summary::before { transform: rotate(90deg); }
+    .section-details summary:hover { color: #292524; }
+    .section-details summary:hover::before { color: #78716c; }
+    .section-body { padding-bottom: 4px; }
+
     .field-row { margin-bottom: 18px; }
     .field-label {
-      font-size: 11px; color: #57534e; margin-bottom: 5px;
+      font-size: 11px; color: #44403c; margin-bottom: 5px;
       display: flex; justify-content: space-between; align-items: baseline;
     }
     .field-label strong { color: #1c1917; font-size: 12px; font-weight: 600; }
@@ -94,7 +180,7 @@
     .mini-input::-webkit-outer-spin-button,
     .mini-input::-webkit-inner-spin-button { -webkit-appearance: none; }
     .mini-input:focus { outline: none; border-color: #b45309; box-shadow: 0 0 0 2px rgba(180,83,9,0.12); }
-    .input-unit { font-size: 12px; color: #57534e; }
+    .input-unit { font-size: 12px; color: #44403c; }
     .input-row { display: flex; align-items: center; gap: 5px; }
 
     select.mini-select {
@@ -106,7 +192,7 @@
     select.mini-select:focus { outline: none; border-color: #b45309; }
 
     /* Buttons */
-    .btn-row { display: flex; gap: 6px; margin-top: 11px; }
+    .btn-row { display: flex; gap: 6px; margin-top: 0; }
     .btn-secondary {
       flex: 1; padding: 7px 0;
       background: rgba(255,255,255,0.65); border: 1px solid rgba(180,140,90,0.35);
@@ -125,8 +211,6 @@
     }
     .btn-primary:hover:not(:disabled) { background: #92400e; }
     .btn-primary:disabled { background: #d4c8b4; cursor: not-allowed; color: #a8a29e; }
-
-    #status { margin-top: 9px; font-size: 11px; color: #57534e; line-height: 1.5; min-height: 15px; }
 
     /* ── Detail panel ── */
     #detail-close {
@@ -277,94 +361,143 @@
 <div id="left-col">
 
   <div id="panel-filters" class="island">
-    <div class="panel-title">Spotlines</div>
 
-    <!-- Length range slider -->
-    <div class="field-row">
-      <div class="field-label">
-        Line length &nbsp;<strong id="slider-val">15 – 50 m</strong>
+    <!-- Section 1: App brand header -->
+    <div class="panel-section">
+    <div class="app-header">
+      <svg class="app-logo" viewBox="0 0 28 22" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <!-- Left anchor pole -->
+        <circle cx="3" cy="11" r="2.5" fill="currentColor"/>
+        <!-- Right anchor pole -->
+        <circle cx="25" cy="11" r="2.5" fill="currentColor"/>
+        <!-- Catenary line -->
+        <path d="M5.5 11 C9 16.5 19 16.5 22.5 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+        <!-- Ground lines -->
+        <line x1="1" y1="19" x2="5" y2="19" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.4"/>
+        <line x1="23" y1="19" x2="27" y2="19" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.4"/>
+        <line x1="3" y1="13.5" x2="3" y2="19" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.4"/>
+        <line x1="25" y1="13.5" x2="25" y2="19" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.4"/>
+      </svg>
+      <div class="app-name">
+        Spotlines
+        <span>Line-of-sight finder</span>
       </div>
-      <div id="length-slider" style="margin: 10px 6px 6px"></div>
+    </div>
     </div>
 
-    <!-- Max slope + Clearance -->
-    <div class="field-row" style="display:flex;gap:14px;align-items:flex-end">
-      <div>
-        <div class="field-label">Max slope</div>
-        <div class="input-row">
-          <input type="number" id="maxSlope" class="mini-input" value="5" min="0" max="90" step="0.5">
-          <span class="input-unit">°</span>
+    <!-- Section 2: Filters -->
+    <div class="panel-section">
+    <details class="section-details" open>
+      <summary>Filters</summary>
+      <div class="section-body">
+
+        <!-- Length range slider -->
+        <div class="field-row">
+          <div class="field-label">
+            Line length &nbsp;<strong id="slider-val">15 – 50 m</strong>
+          </div>
+          <div id="length-slider" style="margin: 10px 6px 6px"></div>
         </div>
-      </div>
-      <div>
-        <div class="field-label">Clearance</div>
-        <div class="input-row">
-          <input type="number" id="clearanceM" class="mini-input" value="1" min="0" max="50" step="0.5">
-          <span class="input-unit">m</span>
-        </div>
-      </div>
-    </div>
 
-    <!-- Water -->
-    <div class="field-row">
-      <div class="field-label">Water crossings</div>
-      <select id="water" class="mini-select">
-        <option value="any">Any</option>
-        <option value="only">Only</option>
-        <option value="exclude">Exclude</option>
-      </select>
-    </div>
-
-    <!-- Line & load -->
-    <div class="field-row" style="margin-bottom:8px">
-      <div class="field-label">Line type</div>
-      <select id="linePreset" class="mini-select" onchange="onLinePresetChange()">
-        <option value="tubular25">Tubular 25 mm</option>
-        <option value="dyneema1">Dyneema 1"</option>
-        <option value="custom">Custom</option>
-      </select>
-    </div>
-    <div id="line-custom" style="display:none;margin-bottom:8px">
-      <div style="display:flex;gap:14px;align-items:flex-end">
-        <div>
-          <div class="field-label">EA</div>
-          <div class="input-row">
-            <input type="number" id="lineEA" class="mini-input" value="150000" min="1000" step="5000">
-            <span class="input-unit">N</span>
+        <!-- Max slope + Clearance -->
+        <div class="field-row" style="display:flex;gap:14px;align-items:flex-end">
+          <div>
+            <div class="field-label">Max slope</div>
+            <div class="input-row">
+              <input type="number" id="maxSlope" class="mini-input" value="5" min="0" max="90" step="0.5">
+              <span class="input-unit">°</span>
+            </div>
+          </div>
+          <div>
+            <div class="field-label">Clearance</div>
+            <div class="input-row">
+              <input type="number" id="clearanceM" class="mini-input" value="1" min="0" max="50" step="0.5">
+              <span class="input-unit">m</span>
+            </div>
           </div>
         </div>
-        <div>
-          <div class="field-label">w</div>
-          <div class="input-row">
-            <input type="number" id="lineW" class="mini-input" value="0.70" min="0.01" step="0.01">
-            <span class="input-unit">N/m</span>
-          </div>
+
+        <!-- Water -->
+        <div class="field-row" style="margin-bottom:6px">
+          <div class="field-label">Water crossings</div>
+          <select id="water" class="mini-select">
+            <option value="any">Any</option>
+            <option value="only">Only</option>
+            <option value="exclude">Exclude</option>
+          </select>
         </div>
+
       </div>
-    </div>
-    <div style="display:flex;gap:14px;align-items:flex-end;margin-bottom:14px">
-      <div>
-        <div class="field-label">Pre-tension</div>
-        <div class="input-row">
-          <input type="number" id="preTension" class="mini-input" value="2000" min="100" step="100">
-          <span class="input-unit">N</span>
-        </div>
-      </div>
-      <div>
-        <div class="field-label">Walker</div>
-        <div class="input-row">
-          <input type="number" id="walkerKg" class="mini-input" value="80" min="20" max="300" step="5">
-          <span class="input-unit">kg</span>
-        </div>
-      </div>
+    </details>
     </div>
 
+    <!-- Section 3: Line (collapsed by default) -->
+    <div class="panel-section">
+    <details class="section-details">
+      <summary>Line<span id="line-hint" class="section-hint"></span></summary>
+      <div class="section-body">
+
+        <!-- Line type -->
+        <div class="field-row" style="margin-bottom:8px">
+          <div class="field-label">Type</div>
+          <select id="linePreset" class="mini-select" onchange="onLinePresetChange()">
+            <option value="tubular25">Tubular 25 mm</option>
+            <option value="dyneema1">Dyneema 1"</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+
+        <!-- Custom line params (shown when custom is selected) -->
+        <div id="line-custom" style="display:none;margin-bottom:12px">
+          <div style="display:flex;gap:14px;align-items:flex-end">
+            <div>
+              <div class="field-label">EA</div>
+              <div class="input-row">
+                <input type="number" id="lineEA" class="mini-input" value="150000" min="1000" step="5000">
+                <span class="input-unit">N</span>
+              </div>
+            </div>
+            <div>
+              <div class="field-label">w</div>
+              <div class="input-row">
+                <input type="number" id="lineW" class="mini-input" value="0.70" min="0.01" step="0.01">
+                <span class="input-unit">N/m</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pre-tension + Walker -->
+        <div style="display:flex;gap:14px;align-items:flex-end;margin-bottom:6px">
+          <div>
+            <div class="field-label">Pre-tension</div>
+            <div class="input-row">
+              <input type="number" id="preTension" class="mini-input" value="2000" min="100" step="100">
+              <span class="input-unit">N</span>
+            </div>
+          </div>
+          <div>
+            <div class="field-label">Walker</div>
+            <div class="input-row">
+              <input type="number" id="walkerKg" class="mini-input" value="80" min="20" max="300" step="5">
+              <span class="input-unit">kg</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </details>
+    </div>
+
+    <!-- Section 4: Buttons + status -->
+    <div class="panel-section">
     <div class="btn-row">
       <button id="selectAreaBtn" class="btn-secondary" onclick="toggleSelectArea()">Select area</button>
       <button id="searchBtn" class="btn-primary" onclick="doSearch()" disabled>Search</button>
     </div>
 
-    <div id="status">Draw a rectangle to begin</div>
+    <div id="status" data-state="idle">Draw a rectangle to begin</div>
+    </div>
   </div>
 
   <!-- Line detail (hidden until click) -->
@@ -1268,14 +1401,14 @@ function anchorCard(label, id, kind, tags, copyBtn, terrain) {
   </div>`;
 }
 
-// Nice Y-axis ticks for elevation charts (whole metres only)
-function _niceTicks(lo, hi, n) {
+// Nice ticks: pick step from STEPS that gives count closest to n
+function _niceTicks(lo, hi, n = 5) {
   const range = hi - lo;
   if (range < 1) return [];
-  const rough = range / n;
-  const mag = Math.pow(10, Math.floor(Math.log10(Math.max(rough, 1))));
-  const norm = rough / mag;
-  const step = Math.max(1, mag * (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10));
+  const STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
+  const step = STEPS.reduce((best, s) =>
+    Math.abs(Math.round(range / s) - n) < Math.abs(Math.round(range / best) - n) ? s : best
+  );
   const start = Math.ceil(lo / step) * step;
   const ticks = [];
   for (let v = start; v <= hi + 1e-9; v += step) ticks.push(Math.round(v));
@@ -1361,45 +1494,42 @@ function elevSvg(terrain, elevA, elevB, corridorFeatures, distance_m, W, H) {
   if (!base) return '';
   const { smoothed, mn, mx, n, firstIdx, lastIdx } = base;
   terrain = smoothed;
-  W = W || 292; H = H || 160;
-  const PL = 36, PR = 6, PT = 8, PB = 50;
+  W = W || 292; H = H || 130;
+  const PL = 8, PR = 8, PT = 8, PB = 32;
   const iW = W - PL - PR, iH = H - PT - PB;
   const xAxisY = PT + iH;
   const rng = mx - mn;
   const px = i => PL + (i / (n - 1)) * iW;
   const py = e => PT + iH - ((e - mn) / rng) * iH;
 
-  // Y-axis: merge A/B elevations with nice ticks, deduplicate, render uniformly
-  let grid = '', yLabels = '';
+  // Grid lines only, no Y-axis labels
+  let grid = '';
   const niceTicks = _niceTicks(mn + 1, mx - 1, 3);
-  const abRounded = [elevA, elevB].filter(v => v != null).map(v => Math.round(v));
-  const allTicks = [...new Set([...niceTicks, ...abRounded])].sort((a, b) => a - b);
-  if (allTicks.length === 1) {
-    const v = allTicks[0];
-    if (v + 1 <= Math.round(mx)) allTicks.push(v + 1);
-    else allTicks.unshift(v - 1);
-  }
-  for (const v of allTicks) {
+  for (const v of niceTicks) {
     const gy = py(v).toFixed(1);
-    grid    += `<line x1="${PL}" y1="${gy}" x2="${W-PR}" y2="${gy}" stroke="rgba(120,90,50,0.2)" stroke-width="1"/>`;
-    yLabels += `<text x="${PL-8}" y="${gy}" dy="0.35em" font-size="9.5" fill="#78716c" text-anchor="end" font-family="system-ui,sans-serif">${v}m</text>`;
+    grid += `<line x1="${PL}" y1="${gy}" x2="${W-PR}" y2="${gy}" stroke="rgba(120,90,50,0.2)" stroke-width="1"/>`;
   }
 
-  // X-axis distance ticks (always show 0 and total distance)
+  // X-axis ticks and labels (~5 ticks, plus full-length mark if gap >= step/2)
   let xTickMarks = '', xLabels = '';
   if (distance_m > 0) {
-    const niceX = _niceTicks(1, distance_m - 1, 3);
-    const allX  = [...new Set([0, ...niceX, Math.round(distance_m)])].sort((a, b) => a - b);
-    for (const d of allX) {
-      const tx     = (PL + (d / distance_m) * iW).toFixed(1);
-      const anchor = d === 0 ? 'start' : d === allX[allX.length - 1] ? 'end' : 'middle';
+    const ticks = _niceTicks(0, distance_m);
+    const step  = ticks.length >= 2 ? ticks[1] - ticks[0] : 0;
+    for (const d of ticks) {
+      const tx = (PL + (d / distance_m) * iW).toFixed(1);
       xTickMarks += `<line x1="${tx}" y1="${xAxisY}" x2="${tx}" y2="${(xAxisY + 3).toFixed(1)}" stroke="rgba(120,90,50,0.45)" stroke-width="1"/>`;
-      xLabels    += `<text x="${tx}" y="${(xAxisY + 12).toFixed(1)}" font-size="9.5" fill="#78716c" text-anchor="${anchor}" font-family="system-ui,sans-serif">${d}m</text>`;
+      xLabels    += `<text x="${tx}" y="${(xAxisY + 12).toFixed(1)}" font-size="9.5" fill="#78716c" text-anchor="${d === 0 ? 'start' : 'middle'}" font-family="system-ui,sans-serif">${d}m</text>`;
+    }
+    const last = ticks[ticks.length - 1] ?? 0;
+    if (Math.round(distance_m) !== last && (step === 0 || Math.round(distance_m) - last >= step / 2)) {
+      const tx = (W - PR).toFixed(1);
+      xTickMarks += `<line x1="${tx}" y1="${xAxisY}" x2="${tx}" y2="${(xAxisY + 3).toFixed(1)}" stroke="rgba(120,90,50,0.45)" stroke-width="1"/>`;
+      xLabels    += `<text x="${tx}" y="${(xAxisY + 12).toFixed(1)}" font-size="9.5" fill="#78716c" text-anchor="end" font-family="system-ui,sans-serif">${Math.round(distance_m)}m</text>`;
     }
   }
 
   // Terrain strips from corridor_features segments (exclude place/boundary)
-  let strips = '', terrainBand = '', terrainLabels = '';
+  let strips = '';
   if (corridorFeatures && corridorFeatures.length) {
     for (const feat of corridorFeatures) {
       if (_PLACE_CATS.has(feat.category)) continue;
@@ -1407,12 +1537,7 @@ function elevSvg(terrain, elevA, elevB, corridorFeatures, distance_m, W, H) {
       for (const seg of (feat.segments || [])) {
         const x1 = PL + seg.t_start * iW, x2 = PL + seg.t_end * iW;
         const w  = Math.max(x2 - x1, 1);
-        strips      += `<rect x="${x1.toFixed(2)}" y="${PT.toFixed(2)}" width="${w.toFixed(2)}" height="${iH.toFixed(2)}" fill="${col}" opacity="0.08"/>`;
-        terrainBand += `<rect x="${x1.toFixed(2)}" y="${(xAxisY + 23).toFixed(1)}" width="${w.toFixed(2)}" height="3.5" fill="${col}" opacity="0.75"/>`;
-        const cx = ((x1 + x2) / 2).toFixed(2);
-        const lbl = featureLabel(feat);
-        const short = lbl.length > 18 ? lbl.slice(0, 17) + '…' : lbl;
-        terrainLabels += `<text x="${cx}" y="${(xAxisY + 36).toFixed(1)}" font-size="9" fill="${col}" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="600">${_escXml(short)}</text>`;
+        strips += `<rect x="${x1.toFixed(2)}" y="${PT.toFixed(2)}" width="${w.toFixed(2)}" height="${iH.toFixed(2)}" fill="${col}" opacity="0.08"/>`;
       }
     }
   }
@@ -1422,15 +1547,17 @@ function elevSvg(terrain, elevA, elevB, corridorFeatures, distance_m, W, H) {
   const sp = catmullRomPath(pts);
   const fp = sp + ` L ${px(lastIdx).toFixed(2)},${xAxisY.toFixed(2)} L ${px(firstIdx).toFixed(2)},${xAxisY.toFixed(2)} Z`;
 
-  // Slackline overlay
+  // Slackline with inline elevation labels above anchor circles
   let slackLine = '';
   if (elevA != null && elevB != null) {
     const yA = py(elevA).toFixed(2), yB = py(elevB).toFixed(2);
-    const xB = (W - PR).toFixed(2);
+    const xA = PL.toFixed(2), xB = (W - PR).toFixed(2);
     slackLine =
-      `<line x1="${PL}" y1="${yA}" x2="${xB}" y2="${yB}" stroke="#b45309" stroke-width="2" stroke-dasharray="5 3" opacity="0.85"/>` +
-      `<circle cx="${PL}" cy="${yA}" r="3.5" fill="#b45309"/>` +
-      `<circle cx="${xB}" cy="${yB}" r="3.5" fill="#b45309"/>`;
+      `<line x1="${xA}" y1="${yA}" x2="${xB}" y2="${yB}" stroke="#b45309" stroke-width="2" stroke-dasharray="5 3" opacity="0.85"/>` +
+      `<circle cx="${xA}" cy="${yA}" r="3.5" fill="#b45309"/>` +
+      `<circle cx="${xB}" cy="${yB}" r="3.5" fill="#b45309"/>` +
+      `<text x="${(PL + 7).toFixed(1)}" y="${(parseFloat(yA) - 7).toFixed(1)}" font-size="9.5" fill="#b45309" text-anchor="start" font-family="system-ui,sans-serif" font-weight="700">${Math.round(elevA)}m</text>` +
+      `<text x="${(W - PR - 7).toFixed(1)}" y="${(parseFloat(yB) - 7).toFixed(1)}" font-size="9.5" fill="#b45309" text-anchor="end" font-family="system-ui,sans-serif" font-weight="700">${Math.round(elevB)}m</text>`;
   }
 
   // Interactive cursor group (hidden until hover)
@@ -1440,7 +1567,7 @@ function elevSvg(terrain, elevA, elevB, corridorFeatures, distance_m, W, H) {
   </g>`;
 
   // Catenary overlay (populated dynamically on hover)
-  const tY = (xAxisY + 47).toFixed(0);
+  const tY = (xAxisY + 20).toFixed(0);
   const catOverlay =
     `<polyline id="cat-locus" points="" fill="none" stroke="#ff6b35" stroke-width="1.5" stroke-dasharray="3 2" opacity="0.45"/>` +
     `<polyline id="cat-line" points="" fill="none" stroke="#ff6b35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>` +
@@ -1459,11 +1586,8 @@ function elevSvg(terrain, elevA, elevB, corridorFeatures, distance_m, W, H) {
     <path d="${sp}" fill="none" stroke="#0d9488" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
     ${slackLine}
     ${catOverlay}
-    <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${xAxisY}" stroke="rgba(120,90,50,0.4)" stroke-width="1"/>
     <line x1="${PL}" y1="${xAxisY}" x2="${W-PR}" y2="${xAxisY}" stroke="rgba(120,90,50,0.4)" stroke-width="1"/>
-    ${yLabels}
     ${xTickMarks}${xLabels}
-    ${terrainBand}${terrainLabels}
     ${cursor}${overlay}
   </svg>`;
 }
@@ -1610,7 +1734,17 @@ function showSlopeLegend(visible) {
 }
 
 // ── Status / progress ────────────────────────────────────────────────────────
-function setStatus(msg) { document.getElementById('status').textContent = msg; }
+function setStatus(msg) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  let state = 'idle';
+  if (msg.startsWith('Error:')) state = 'error';
+  else if (/\d+ pairs? found/.test(msg)) state = 'done';
+  else if (msg.includes('Area selected')) state = 'ready';
+  else if (msg.includes('too large') || msg.includes('must be less')) state = 'error';
+  else if (msg.includes('Draw') || msg.includes('first')) state = 'idle';
+  el.dataset.state = state;
+}
 
 const _PHASES = [3, 35, 45, 55, 63, 75, 100];
 const _tween  = { current: 0, target: 0, raf: null };
@@ -1835,12 +1969,22 @@ function _updateCatenaryAt(t) {
   catTension.textContent = `T_A ${(TA / 1000).toFixed(2)} kN  ·  T_B ${(TB / 1000).toFixed(2)} kN`;
 }
 
+function updateLineHint() {
+  const preset = document.getElementById('linePreset');
+  const tension = document.getElementById('preTension');
+  const hint = document.getElementById('line-hint');
+  if (!hint) return;
+  const label = preset.options[preset.selectedIndex].text;
+  hint.textContent = `${label} · ${tension.value} N`;
+}
+
 // Preset dropdown handler
 function onLinePresetChange() {
   const preset = document.getElementById('linePreset').value;
   document.getElementById('line-custom').style.display = preset === 'custom' ? 'block' : 'none';
   _catState = null;
   _updateCatenaryAt(_lastCatT);
+  updateLineHint();
 }
 
 // Re-draw on any line/load param change
@@ -1848,8 +1992,10 @@ function onLinePresetChange() {
   document.getElementById(id)?.addEventListener('input', () => {
     _catState = null;
     _updateCatenaryAt(_lastCatT);
+    if (id === 'preTension') updateLineHint();
   });
 });
+updateLineHint();
 
 function setLoading(on) {
   document.getElementById('searchBtn').disabled = on;
@@ -1858,6 +2004,7 @@ function setLoading(on) {
   if (on) {
     bar.style.transition = 'none'; bar.style.width = '0%'; bar.style.opacity = '1';
     _tween.current = 0;
+    document.getElementById('status').dataset.state = 'loading';
   } else {
     bar.style.transition = 'width 0.2s ease, opacity 0.5s ease 0.25s';
     bar.style.width = '100%';

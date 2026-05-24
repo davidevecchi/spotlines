@@ -8,3 +8,4 @@ __pycache__/
 *.zip
 /*.html
 .claude/
+/OSM Map Features Checklist_files/

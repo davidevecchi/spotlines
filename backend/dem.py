@@ -108,9 +108,15 @@ def _download_glo30(lat_f: int, lon_f: int, dest: Path) -> None:
     lo = f"E{lon_f:03d}" if lon_f >= 0 else f"W{abs(lon_f):03d}"
     name = f"Copernicus_DSM_COG_10_{ls}_00_{lo}_00_DEM"
     url = f"/vsicurl/https://copernicus-dem-30m.s3.eu-central-1.amazonaws.com/{name}/{name}.tif"
-    with rasterio.open(url) as src:
-        _save_as_wgs84(src, dest)
-    print(f"DEM cached: glo30/{dest.name}", flush=True)
+    try:
+        with rasterio.open(url) as src:
+            _save_as_wgs84(src, dest)
+        print(f"DEM cached: glo30/{dest.name}", flush=True)
+    except Exception:
+        # Remove any partially-written file so a future call re-attempts the download
+        if dest.exists():
+            dest.unlink()
+        raise
 
 
 def _download_tinitaly(lat_f: int, lon_f: int, dest: Path) -> bool:
@@ -176,6 +182,13 @@ def _get_dem_tile(lat_f: int, lon_f: int) -> Optional[Path]:
 
 # ── Public elevation API (used by elevation.py) ───────────────────────────────
 
+def _is_nodata_val(val: float, nodata: float) -> bool:
+    """NaN-safe nodata comparison.  float NaN != float NaN in Python/IEEE 754."""
+    if math.isnan(nodata):
+        return math.isnan(val)
+    return val == nodata
+
+
 def dem_cache_available() -> bool:
     """Return True if the local DEM cache directory exists and is accessible."""
     return _DEM_DIR.exists()
@@ -214,7 +227,7 @@ def get_elevation_at_points(
                 coords = [(lons[i], lats[i]) for i in indices]
                 for i, val_arr in zip(indices, ds.sample(coords, indexes=1)):
                     val = float(val_arr[0])
-                    if nodata is None or val != nodata:
+                    if nodata is None or not _is_nodata_val(val, nodata):
                         result[i] = val
         except Exception as exc:
             print(f"Elevation sampling failed ({lat_f},{lon_f}): {exc}", flush=True)
@@ -310,6 +323,8 @@ def _load_slope_data(
     slope image, elevation image, stats, and contours on the same bbox only open
     rasterio files once.
     """
+    if south >= north or west >= east:
+        return None
     cache_key = (round(south, 5), round(west, 5), round(north, 5), round(east, 5), max_px, blur_sigma)
     now = time.time()
     with _dem_array_lock:
@@ -345,7 +360,10 @@ def _load_slope_data(
             arr = ds.read(1, window=win, out_shape=(H, W),
                           resampling=Resampling.cubic_spline).astype(np.float32)
             if ds.nodata is not None:
-                arr[arr == ds.nodata] = np.nan
+                # Cast nodata to float32 first: a float64 nodata that is not exactly
+                # representable in float32 would never match arr values otherwise.
+                nd_f32 = np.float32(ds.nodata)
+                arr[np.isnan(arr) if np.isnan(nd_f32) else (arr == nd_f32)] = np.nan
             arrays.append(arr)
         elev = np.nanmean(np.stack(arrays, axis=0), axis=0) if len(arrays) > 1 else arrays[0]
         if blur_sigma > 0:
@@ -542,12 +560,45 @@ def get_contour_svg(south: float, west: float, north: float, east: float) -> str
         return _EMPTY
 
     from matplotlib.figure import Figure
+    from matplotlib.path import Path as _MplPath
     fig = Figure()
     ax = fig.add_subplot(111)
     cs = ax.contour(elev, levels=levels)
 
+    def _cs_segs_per_level(cs):
+        """Return per-level segment arrays, compatible with matplotlib 3.5–3.10+.
+
+        allsegs was deprecated in 3.8 and removed in 3.10; fall back to
+        reconstructing arrays from the internal _paths list-of-lists or
+        from the (also-deprecated) collections attribute.
+        """
+        try:
+            return cs.allsegs  # works through matplotlib 3.9
+        except AttributeError:
+            pass
+
+        def _split_path(path):
+            """Split a compound Path into individual Nx2 vertex arrays."""
+            v, c = path.vertices, path.codes
+            if c is None:
+                return [v] if len(v) >= 2 else []
+            cuts = list(np.where(c == _MplPath.MOVETO)[0])
+            cuts.append(len(c))
+            return [v[a:b] for a, b in zip(cuts, cuts[1:]) if b - a >= 2]
+
+        # matplotlib 3.10+: _paths is list[list[Path]], one list per level
+        if hasattr(cs, '_paths'):
+            return [[seg for p in lvl_paths for seg in _split_path(p)]
+                    for lvl_paths in cs._paths]
+        # Last resort: collections (deprecated 3.8, removed 3.10, but try anyway)
+        try:
+            return [[seg for p in coll.get_paths() for seg in _split_path(p)]
+                    for coll in cs.collections]
+        except AttributeError:
+            return [[] for _ in levels]
+
     minor_segs, major_segs = [], []
-    for level, segs in zip(levels, cs.allsegs):
+    for level, segs in zip(levels, _cs_segs_per_level(cs)):
         target = major_segs if abs(level % _CONTOUR_MAJOR_M) < 0.01 else minor_segs
         for seg in segs:
             if len(seg) < 2:

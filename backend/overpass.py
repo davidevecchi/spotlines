@@ -8,7 +8,11 @@ from threading import Lock
 import requests
 from . import feature_map as _fm
 
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+_OVERPASS_ENDPOINTS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+]
 _CACHE: dict = {}
 _CACHE_LOCK = Lock()
 _CACHE_TTL = 300  # seconds
@@ -29,24 +33,30 @@ def fetch_osm(south: float, west: float, north: float, east: float) -> dict:
     now = time.time()
 
     with _CACHE_LOCK:
+        # Prune expired entries on every call (hit or miss) to prevent unbounded growth
+        for k in [k for k, v in _CACHE.items() if now - v["ts"] >= _CACHE_TTL]:
+            del _CACHE[k]
         cached = _CACHE.get(key)
         if cached and now - cached["ts"] < _CACHE_TTL:
             return cached["data"]
-        # Prune expired entries on each write to prevent unbounded growth
-        for k in [k for k, v in _CACHE.items() if now - v["ts"] >= _CACHE_TTL]:
-            del _CACHE[k]
 
     query = _build_query(south, west, north, east)
-    try:
-        resp = requests.post(
-            OVERPASS_URL,
-            data={"data": query},
-            headers={"User-Agent": "Spotlines/1.0"},
-            timeout=90,
-        )
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        raise RuntimeError(str(exc)) from exc
+    last_exc: Exception | None = None
+    for endpoint in _OVERPASS_ENDPOINTS:
+        try:
+            resp = requests.post(
+                endpoint,
+                data={"data": query},
+                headers={"User-Agent": "Spotlines/1.0"},
+                timeout=120,
+            )
+            resp.raise_for_status()
+            break
+        except requests.RequestException as exc:
+            last_exc = exc
+            continue
+    else:
+        raise RuntimeError(str(last_exc)) from last_exc
 
     data = resp.json()
     with _CACHE_LOCK:
@@ -57,7 +67,7 @@ def fetch_osm(south: float, west: float, north: float, east: float) -> dict:
 def _build_query(south: float, west: float, north: float, east: float) -> str:
     b = f"{south},{west},{north},{east}"
     parts = [f"  nwr[{key}]({b});" for key in sorted(_fm.ALL_KEYS)]
-    return "[out:json][timeout:60];\n(\n" + "\n".join(parts) + "\n);\nout body; >; out skel qt;"
+    return "[out:json][timeout:90];\n(\n" + "\n".join(parts) + "\n);\nout body; >; out skel qt;"
 
 
 def parse_osm(

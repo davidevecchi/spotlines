@@ -245,7 +245,7 @@ def filter_landuse_blockers(pairs: list[Pair]) -> list[Pair]:
     return [
         p for p in pairs
         if not any(
-            f["is_blocker"] and f["segments"] and f["category"] == "landuse"
+            f["is_blocker"] and f["segments"] and f["category"] == "osmlanduse"
             for f in (p.corridor_features or [])
         )
     ]

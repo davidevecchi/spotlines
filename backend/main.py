@@ -35,6 +35,8 @@ async def slope_stats(
 ):
     if abs(north - south) > 0.2 or abs(east - west) > 0.2:
         raise HTTPException(400, "Bounding box exceeds 0.2° per side")
+    if south >= north or west >= east:
+        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
     loop = asyncio.get_running_loop()
     min_deg, max_deg = await loop.run_in_executor(
         None, partial(get_slope_stats, south, west, north, east)
@@ -51,6 +53,8 @@ async def slope_contours(
 ):
     if abs(north - south) > 0.2 or abs(east - west) > 0.2:
         raise HTTPException(400, "Bounding box exceeds 0.2° per side")
+    if south >= north or west >= east:
+        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
     loop = asyncio.get_running_loop()
     svg = await loop.run_in_executor(
         None, partial(get_contour_svg, south, west, north, east)
@@ -68,6 +72,8 @@ async def slope_image(
 ):
     if abs(north - south) > 0.2 or abs(east - west) > 0.2:
         raise HTTPException(400, "Bounding box exceeds 0.2° per side")
+    if south >= north or west >= east:
+        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
     loop = asyncio.get_running_loop()
     png = await loop.run_in_executor(None, partial(get_slope_image, south, west, north, east))
     return Response(content=png, media_type="image/png")
@@ -82,6 +88,8 @@ async def elevation_image(
 ):
     if abs(north - south) > 0.2 or abs(east - west) > 0.2:
         raise HTTPException(400, "Bounding box exceeds 0.2° per side")
+    if south >= north or west >= east:
+        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
     loop = asyncio.get_running_loop()
     png = await loop.run_in_executor(None, partial(get_elevation_image, south, west, north, east))
     return Response(content=png, media_type="image/png")
@@ -99,6 +107,8 @@ async def terrain_image(
 ):
     if abs(north - south) > 0.2 or abs(east - west) > 0.2:
         raise HTTPException(400, "Bounding box exceeds 0.2° per side")
+    if south >= north or west >= east:
+        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
     loop = asyncio.get_running_loop()
     png = await loop.run_in_executor(
         None, partial(get_terrain_image, south, west, north, east,
@@ -116,6 +126,8 @@ async def hillshade_image(
 ):
     if abs(north - south) > 0.2 or abs(east - west) > 0.2:
         raise HTTPException(400, "Bounding box exceeds 0.2° per side")
+    if south >= north or west >= east:
+        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
     loop = asyncio.get_running_loop()
     png = await loop.run_in_executor(None, partial(get_hillshade_image, south, west, north, east))
     return Response(content=png, media_type="image/png")
@@ -130,6 +142,8 @@ async def elevation_stats_endpoint(
 ):
     if abs(north - south) > 0.2 or abs(east - west) > 0.2:
         raise HTTPException(400, "Bounding box exceeds 0.2° per side")
+    if south >= north or west >= east:
+        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
     loop = asyncio.get_running_loop()
     min_m, max_m = await loop.run_in_executor(
         None, partial(get_elevation_stats, south, west, north, east)
@@ -156,6 +170,8 @@ async def landuse_image(
 ):
     if abs(north - south) > 0.2 or abs(east - west) > 0.2:
         raise HTTPException(400, "Bounding box exceeds 0.2° per side")
+    if south >= north or west >= east:
+        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
     loop = asyncio.get_running_loop()
     _, raw = await loop.run_in_executor(
         None, partial(get_or_fetch_raster, south, west, north, east)
@@ -183,6 +199,8 @@ async def debug_rect(
     """
     if abs(north - south) > 0.2 or abs(east - west) > 0.2:
         raise HTTPException(400, "Bounding box exceeds 0.2° per side")
+    if south >= north or west >= east:
+        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
     loop = asyncio.get_running_loop()
 
     def _run():
@@ -305,6 +323,8 @@ async def get_spots(
 ):
     if abs(north - south) > 0.2 or abs(east - west) > 0.2:
         raise HTTPException(400, "Bounding box exceeds 0.2° per side")
+    if south >= north or west >= east:
+        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
     if water not in ("any", "only", "exclude"):
         raise HTTPException(400, "water must be 'any', 'only', or 'exclude'")
     if min_m >= max_m:
@@ -336,7 +356,11 @@ async def get_spots(
                 yield "data: " + json.dumps({"status": f"Fetching OSM, DEM, landuse… ({elapsed:.0f}s)", "pct": 5}) + "\n\n"
             data = osm_fut.result()
             raster, _raw_png = raster_fut.result()
-        except RuntimeError as exc:
+            try:
+                dem_fut.result()  # re-raise any DEM prefetch error; non-fatal, just log
+            except Exception as dem_exc:
+                print(f"DEM prefetch warning (non-fatal): {dem_exc}", flush=True)
+        except Exception as exc:
             yield "data: " + json.dumps({"error": str(exc)}) + "\n\n"
             return
         t1 = time.perf_counter()
@@ -390,7 +414,8 @@ async def get_spots(
         if pairs:
             yield evt(f"Building corridor features for {len(pairs)} pairs…", 85)
             await loop.run_in_executor(None, partial(compute_corridor_features, pairs, element_tree, records, clearance_m, mid_lat))
-            await loop.run_in_executor(None, partial(compute_corridor_landuse, pairs, raster, south, west, north, east, clearance_m))
+            if raster is not None:
+                await loop.run_in_executor(None, partial(compute_corridor_landuse, pairs, raster, south, west, north, east, clearance_m))
             pairs = filter_landuse_blockers(pairs)
         t7 = time.perf_counter()
 
