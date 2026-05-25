@@ -205,32 +205,6 @@ barrier,toll_booth,#1e293b,False,False,False,False,A place where a road usage to
 barrier,turnstile,#1e293b,False,False,False,False,"A turnstile, a passage on foot designed to allow one person at a time to pass"
 barrier,wall,#1e293b,False,False,False,False,"A freestanding structure, designed to restrict or prevent movement across a boundary, typically made from solid brick, concrete or rocks, and almost always built so that it is opaque to vision."
 barrier,yes,#1e293b,False,False,False,False,"Unspecified barrier. If possible, use a more specific value."
-boundary,aboriginal_lands,#be185d,False,False,False,False,A boundary representing official reservation boundaries of recognized aboriginal / indigenous / native peoples.
-boundary,administrative,#be185d,True,True,False,False,"An administrative boundary. Subdivisions of areas/territories/jurisdictions recognised by governments or other organisations for administrative purposes. These range from large groups of nation states right down to small administrative districts and suburbs, as indicated by the"
-boundary,census,#be185d,True,True,False,False,"A census-designated boundary delineating a statistical area, not necessarily observable on the ground."
-boundary,disputed,#be185d,True,True,False,False,An area of landed claimed by two or more parties (use with caution). See also
-boundary,forest,#be185d,True,True,False,False,"A delimited forest is a land which is predominantly wooded and which is, for this reason, given defined boundaries. It may cover different tree stands, non-wooded areas, highways… but all the area within the boundaries are considered and managed as a single forest."
-boundary,forest_compartment,#be185d,True,True,False,False,"A forest compartment is a numbered sub-division within a delimited forest, physically materialized with visible, typically cleared, boundaries."
-boundary,health,#be185d,True,True,False,False,Health division boundaries. Some mappers use
-boundary,historic,#be185d,True,True,False,False,A historic administrative boundary (use judiciously).
-boundary,limited_traffic_zone,#be185d,True,True,False,False,Describes an officially designated area that requires authorization for the entry of certain vehicles.
-boundary,local_authority,#be185d,True,True,False,False,Describes the territory of a local authority.
-boundary,low_emission_zone,#be185d,True,True,False,False,A geographically defined area which seeks to restrict or deter access by certain polluting vehicles with the aim of improving the air quality.
-boundary,national_park,#be185d,True,True,False,False,"Area of outstanding natural beauty, set aside for conservation and for recreation ("
-boundary,place,#be185d,True,True,False,False,boundary
-boundary,political,#be185d,True,True,False,False,Electoral boundaries
-boundary,postal_code,#be185d,True,True,False,False,Postal code boundaries. Some mappers use
-boundary,public_transport,#be185d,True,True,False,False,An operating area of a transit authority.
-boundary,special_economic_zone,#be185d,True,True,False,False,A government-defined area in which business and trade laws are different.
-boundary,statistical,#be185d,True,True,False,False,An official boundary recognised by government for statistical purposes.
-boundary,timezone,#be185d,True,True,False,False,Boundaries of time zone
-boundary,*,#be185d,True,True,False,False,All commonly used values
-boundary,border_zone,#be185d,False,False,False,False,A border zone is an area near the border where special restrictions on movement apply. Usually a permit is required for visiting.
-boundary,hazard,#be185d,False,False,False,False,"A designated hazardous area, with a potential source of damage to health, life, property, or any other interest of value."
-boundary,maritime,#be185d,True,True,False,False,"Maritime boundaries which are not administrative boundaries: the Baseline, Contiguous Zone and EEZ (Exclusive Economic Zone)."
-boundary,marker,#be185d,False,False,False,False,"A boundary marker, border marker, boundary stone, or border stone is a robust physical marker that identifies the start of a land boundary or the change in a boundary, especially a change in direction of a boundary. See alsohistoric=boundary_stone"
-boundary,protected_area,#be185d,False,False,False,False,"Protected areas, such as for national parks, marine protection areas, heritage sites, wilderness, cultural assets and similar."
-boundary,religious_administration,#be185d,True,True,False,False,"A religious administration boundary, eg. of a catholic diocese or parish. Usereligion=*anddenomination=*to specify the church to which the boundary applies. Some mappers usereligious_level=*instead ofadmin_level=*to specify level in the church hierarchy."
 building,allotment_house,#d97706,False,False,False,False,A small outbuilding for short visits in a allotment garden.
 building,apartments,#d97706,False,False,False,False,"A building arranged into individual dwellings, often on separate floors. May also have retail outlets on the ground floor."
 building,bakehouse,#d97706,False,False,False,False,A building that was built as a bakehouse (i.e. for baking bread). Often used in conjunction with another nodeamenity=baking_ovenandoven=wood_fired.
@@ -683,36 +657,6 @@ natural,volcano,#d2b986,False,False,False,False,An opening exposed on the earth'
 natural,water,#6ba3bd,True,True,False,True,"Any inland body of water, from natural such as a lake or pond to artificial like a moat or canal."
 natural,wetland,#b7d6eb,True,True,False,True,A natural area subject to inundation or with waterlogged ground
 natural,wood,#18653a,True,True,False,False,Tree-covered area (a 'forest' or 'wood')
-place,allotments,#9333ea,True,True,False,False,"A separate settlement, which is located outside an officially inhabited locality and has its own addressing"
-place,archipelago,#9333ea,True,True,False,False,A named group or chain of closely related islands and islets.
-place,borough,#9333ea,True,True,False,False,A part in a larger city grouped into administrative unit.
-place,city,#9333ea,True,True,False,False,The largest urban settlement or settlements within the territory.
-place,city_block,#9333ea,True,True,False,False,"A named city block, usually surrounded by streets."
-place,continent,#9333ea,True,True,False,False,"One of the seven continents: Africa, Antarctica, Asia, Europe, North America, Oceania, South America."
-place,country,#9333ea,True,True,False,False,A nation state or other high-level national political/administrative area.
-place,county,#9333ea,True,True,False,False,A county - a geographical region of a country.
-place,district,#9333ea,True,True,False,False,"A district – a type of administrative division that, in some countries, is managed by local government."
-place,farm,#9333ea,True,True,False,False,An individually named farm.
-place,hamlet,#9333ea,True,True,False,False,"A smaller rural community, typically with fewer than 100-200 inhabitants, and little infrastructure."
-place,island,#9333ea,True,True,False,False,Any piece of land that is completely surrounded by water and isolated from other significant landmasses (bigger than 1 km²).
-place,islet,#9333ea,True,True,False,False,A very small island (smaller than 1 km²).
-place,isolated_dwelling,#9333ea,True,True,False,False,The smallest kind of settlement (1-2 households).
-place,locality,#9333ea,True,True,False,False,A named place that has no population.
-place,municipality,#9333ea,True,True,False,False,A municipality - single urban administrative division having corporate status.
-place,neighbourhood,#9333ea,True,True,False,False,"A neighbourhood is a smaller named, geographically localised place within a suburb of a larger city or within a town or village"
-place,ocean,#9333ea,True,True,False,False,The world's five main major oceanic divisions.
-place,plot,#9333ea,True,True,False,False,A named plot is a tract or parcel of land owned or meant to be owned by some owner.
-place,polder,#9333ea,True,True,False,False,A land area that forms an artificial hydrological entity enclosed by embankments and usually is under sea level.
-place,province,#9333ea,True,True,False,False,A subdivision of a country similar to a state.
-place,quarter,#9333ea,True,True,False,False,"A quarter is a named, geographically localised place within a suburb of a larger city or within a town, which is bigger than a neighbourhood."
-place,region,#9333ea,True,True,False,False,Used both as a broad tag for geographic or historical areas with no clear boundary and for distinct administration areas (with specific boundaries) in some countries.
-place,sea,#9333ea,True,True,False,False,"A large body of salt water part of, or connected to, an ocean."
-place,square,#9333ea,True,True,False,False,"A town or village square: a (typically) paved open space, generally of architectural significance, which is surrounded by buildings in a built-up area such as a city, town or village."
-place,state,#9333ea,True,True,False,False,A large sub-national political/administrative area.
-place,subdistrict,#9333ea,True,True,False,False,A subdistrict - a subdivision of a district used for administrative or other purposes.
-place,suburb,#9333ea,True,True,False,False,A part of a town or city with a well-known name and often a distinct identity.
-place,town,#9333ea,True,True,False,False,"An important urban centre, between a village and a city in size."
-place,village,#9333ea,True,True,False,False,"A smaller distinct settlement, smaller than a town with few facilities available with people traveling to nearby towns to access these."
 power,cable,#1e293b,True,True,False,False,"An insulated cable carrying electrical power, such as transmission or distribution cables located underground and undersea cables"
 power,catenary_mast,#1e293b,False,False,False,False,A pole supporting the overhead wires used to supply electricity to vehicles equipped with a pantograph such as trams and trains.
 power,compensator,#1e293b,False,False,False,False,A static power device used to ensure power quality and electrical network resilience.

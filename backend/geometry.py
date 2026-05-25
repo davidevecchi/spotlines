@@ -213,9 +213,6 @@ def _element_geom(el: dict, etype: str, nodes_by_id: dict, ways_by_id: dict,
 # Element classification helpers
 # ---------------------------------------------------------------------------
 
-def _format_tag(val: str) -> str:
-    return val.replace("_", " ").capitalize()
-
 
 _JSON_LABEL_KEYS: list[str] = sorted(_fm.KEYS)
 

@@ -907,14 +907,6 @@ function showElevLegend(visible) {
 }
 
 // ── Geolocation ──────────────────────────────────────────────────────────────
-if (navigator.geolocation) {
-  navigator.geolocation.getCurrentPosition(
-    pos => map.setView([pos.coords.latitude, pos.coords.longitude], 14),
-    () => {},
-    { timeout: 6000 }
-  );
-}
-
 function geolocate() {
   if (!navigator.geolocation) return;
   const btn = document.getElementById('geolocate-btn');
@@ -1279,9 +1271,15 @@ function featureColor(f, fallback='#64748b') {
   return _overpasFeatures[`${f.category}:${f.label}`.toLowerCase()]?.color || fallback;
 }
 
+function _formatTag(val) {
+  if (!val) return val;
+  const s = val.replace(/_/g, ' ');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 function featureLabel(f) {
   if (!f) return '';
-  if (f.label) { const l = f.label.replace(/_/g, ' '); return f.name ? `${l}: ${f.name}` : l; }
+  if (f.label) { const l = _formatTag(f.label); return f.name ? `${l}: ${f.name}` : l; }
   return f.category || '';
 }
 
@@ -1615,7 +1613,7 @@ function _normalizeLanduseSegs(landuseFeats) {
   const segs = [];
   for (const f of landuseFeats) {
     const col   = featureColor(f);
-    const label = f.label || f.category || '';
+    const label = _formatTag(f.label || f.category || '');
     for (const s of (f.segments || []))
       segs.push({ t_start: s.t_start, t_end: s.t_end, col, label });
   }
@@ -1706,7 +1704,7 @@ function buildCorridorFeatureList(feats) {
         barHtml = `<div style="margin-top:2px;position:relative;height:5px;background:rgba(180,140,90,0.15);border-radius:2px;overflow:hidden">${fills}</div>`;
       }
 
-      const valuePart = f.label ? _escXml(f.label.replace(/_/g, ' ')) : _escXml(f.category || '');
+      const valuePart = f.label ? _escXml(_formatTag(f.label)) : _escXml(f.category || '');
       const namePart  = f.label && f.name ? `<span style="font-weight:400">: ${_escXml(f.name)}</span>` : '';
       const keyPart   = f.label ? `<span style="color:#a8a29e;font-weight:400;font-size:9px;margin-left:4px">${_escXml(f.category||'')}</span>` : '';
       rows += `<div style="margin-bottom:5px">` +
