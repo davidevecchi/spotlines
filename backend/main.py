@@ -6,8 +6,9 @@ import json
 import time
 from functools import partial
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -18,7 +19,12 @@ from .analysis import (
 )
 from .landuse import get_or_fetch_raster, check_landuse_blocker, _TYPES as _LANDUSE_TYPES
 from .feature_map import OVERPASS_DATA as _OVERPASS_FEATURES
-from .dem import get_slope_image, get_slope_stats, get_contour_svg, get_elevation_image, get_elevation_stats, get_hillshade_image, get_terrain_image, prefetch_bbox as prefetch_dem
+from .dem import (
+    get_slope_image, get_slope_stats, get_contour_svg,
+    get_elevation_image, get_elevation_stats,
+    get_hillshade_image, get_terrain_image,
+    prefetch_bbox as prefetch_dem,
+)
 from .elevation import fetch_elevations
 from .geometry import build_all_indices, get_corridor_features
 from .overpass import fetch_osm, parse_osm
@@ -26,155 +32,119 @@ from .overpass import fetch_osm, parse_osm
 app = FastAPI(title="Spotlines")
 
 
+# ---------------------------------------------------------------------------
+# Shared dependencies & helpers
+# ---------------------------------------------------------------------------
+
+class BboxParams:
+    """Query-parameter dependency that validates and holds a bounding box."""
+
+    def __init__(
+        self,
+        south: float = Query(...),
+        west: float = Query(...),
+        north: float = Query(...),
+        east: float = Query(...),
+    ):
+        if abs(north - south) > 0.2 or abs(east - west) > 0.2:
+            raise HTTPException(400, "Bounding box exceeds 0.2° per side")
+        if south >= north or west >= east:
+            raise HTTPException(
+                400,
+                "Bounding box is invalid: south must be < north and west must be < east",
+            )
+        self.south = south
+        self.west = west
+        self.north = north
+        self.east = east
+
+
+Bbox = Annotated[BboxParams, Depends()]
+
+
+async def _dem_image(fn, bbox: BboxParams, *extra) -> Response:
+    """Run a synchronous DEM image function in a thread and return a PNG Response."""
+    loop = asyncio.get_running_loop()
+    png = await loop.run_in_executor(
+        None, partial(fn, bbox.south, bbox.west, bbox.north, bbox.east, *extra)
+    )
+    return Response(content=png, media_type="image/png")
+
+
+# ---------------------------------------------------------------------------
+# Slope / elevation / terrain endpoints
+# ---------------------------------------------------------------------------
+
 @app.get("/slope/stats")
-async def slope_stats(
-    south: float = Query(...),
-    west: float = Query(...),
-    north: float = Query(...),
-    east: float = Query(...),
-):
-    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
-        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
-    if south >= north or west >= east:
-        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
+async def slope_stats(bbox: Bbox):
     loop = asyncio.get_running_loop()
     min_deg, max_deg = await loop.run_in_executor(
-        None, partial(get_slope_stats, south, west, north, east)
+        None, partial(get_slope_stats, bbox.south, bbox.west, bbox.north, bbox.east)
     )
     return {"min_deg": min_deg, "max_deg": max_deg}
 
 
 @app.get("/slope/contours")
-async def slope_contours(
-    south: float = Query(...),
-    west: float = Query(...),
-    north: float = Query(...),
-    east: float = Query(...),
-):
-    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
-        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
-    if south >= north or west >= east:
-        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
+async def slope_contours(bbox: Bbox):
     loop = asyncio.get_running_loop()
     svg = await loop.run_in_executor(
-        None, partial(get_contour_svg, south, west, north, east)
+        None, partial(get_contour_svg, bbox.south, bbox.west, bbox.north, bbox.east)
     )
-    return Response(content=svg, media_type="image/svg+xml",
-                    headers={"Cache-Control": "no-cache"})
+    return Response(
+        content=svg, media_type="image/svg+xml",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @app.get("/slope/image")
-async def slope_image(
-    south: float = Query(...),
-    west: float = Query(...),
-    north: float = Query(...),
-    east: float = Query(...),
-):
-    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
-        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
-    if south >= north or west >= east:
-        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
-    loop = asyncio.get_running_loop()
-    png = await loop.run_in_executor(None, partial(get_slope_image, south, west, north, east))
-    return Response(content=png, media_type="image/png")
+async def slope_image(bbox: Bbox):
+    return await _dem_image(get_slope_image, bbox)
 
 
 @app.get("/elevation/image")
-async def elevation_image(
-    south: float = Query(...),
-    west: float = Query(...),
-    north: float = Query(...),
-    east: float = Query(...),
-):
-    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
-        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
-    if south >= north or west >= east:
-        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
+async def elevation_image(bbox: Bbox):
+    return await _dem_image(get_elevation_image, bbox)
+
+
+@app.get("/elevation/stats")
+async def elevation_stats_endpoint(bbox: Bbox):
     loop = asyncio.get_running_loop()
-    png = await loop.run_in_executor(None, partial(get_elevation_image, south, west, north, east))
-    return Response(content=png, media_type="image/png")
+    min_m, max_m = await loop.run_in_executor(
+        None, partial(get_elevation_stats, bbox.south, bbox.west, bbox.north, bbox.east)
+    )
+    return {"min_m": min_m, "max_m": max_m}
 
 
 @app.get("/terrain/image")
 async def terrain_image(
-    south: float = Query(...),
-    west: float = Query(...),
-    north: float = Query(...),
-    east: float = Query(...),
+    bbox: Bbox,
     elev: int = Query(default=0),
     slope: int = Query(default=0),
     hillshade: int = Query(default=0),
 ):
-    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
-        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
-    if south >= north or west >= east:
-        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
-    loop = asyncio.get_running_loop()
-    png = await loop.run_in_executor(
-        None, partial(get_terrain_image, south, west, north, east,
-                      bool(elev), bool(slope), bool(hillshade))
-    )
-    return Response(content=png, media_type="image/png")
+    return await _dem_image(get_terrain_image, bbox, bool(elev), bool(slope), bool(hillshade))
 
 
 @app.get("/hillshade/image")
-async def hillshade_image(
-    south: float = Query(...),
-    west: float = Query(...),
-    north: float = Query(...),
-    east: float = Query(...),
-):
-    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
-        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
-    if south >= north or west >= east:
-        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
-    loop = asyncio.get_running_loop()
-    png = await loop.run_in_executor(None, partial(get_hillshade_image, south, west, north, east))
-    return Response(content=png, media_type="image/png")
+async def hillshade_image(bbox: Bbox):
+    return await _dem_image(get_hillshade_image, bbox)
 
 
-@app.get("/elevation/stats")
-async def elevation_stats_endpoint(
-    south: float = Query(...),
-    west: float = Query(...),
-    north: float = Query(...),
-    east: float = Query(...),
-):
-    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
-        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
-    if south >= north or west >= east:
-        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
-    loop = asyncio.get_running_loop()
-    min_m, max_m = await loop.run_in_executor(
-        None, partial(get_elevation_stats, south, west, north, east)
-    )
-    return {"min_m": min_m, "max_m": max_m}
-
+# ---------------------------------------------------------------------------
+# Landuse endpoints
+# ---------------------------------------------------------------------------
 
 @app.get("/landuse/types")
 async def landuse_types():
     return _LANDUSE_TYPES
 
 
-@app.get("/overpass/features")
-async def overpass_features_endpoint():
-    return _OVERPASS_FEATURES
-
-
 @app.get("/landuse/image")
-async def landuse_image(
-    south: float = Query(...),
-    west: float = Query(...),
-    north: float = Query(...),
-    east: float = Query(...),
-):
-    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
-        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
-    if south >= north or west >= east:
-        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
+async def landuse_image(bbox: Bbox):
     loop = asyncio.get_running_loop()
     _, raw = await loop.run_in_executor(
-        None, partial(get_or_fetch_raster, south, west, north, east)
+        None,
+        partial(get_or_fetch_raster, bbox.south, bbox.west, bbox.north, bbox.east),
     )
     if raw is None:
         raise HTTPException(502, "osmlanduse.org unavailable")
@@ -185,37 +155,38 @@ async def landuse_image(
     )
 
 
+# ---------------------------------------------------------------------------
+# Overpass / feature endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/overpass/features")
+async def overpass_features_endpoint():
+    return _OVERPASS_FEATURES
+
+
+# ---------------------------------------------------------------------------
+# Debug endpoints
+# ---------------------------------------------------------------------------
+
 @app.get("/debug/rect")
-async def debug_rect(
-    south: float = Query(...),
-    west: float = Query(...),
-    north: float = Query(...),
-    east: float = Query(...),
-):
+async def debug_rect(bbox: Bbox):
     """Return every classified OSM element in the bbox.
 
     Each entry: {osm_type, osm_id, tags, is_blocker, is_water, label, category}
     plus a summary of anchor count and record counts.
     """
-    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
-        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
-    if south >= north or west >= east:
-        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
     loop = asyncio.get_running_loop()
 
     def _run():
-        data = fetch_osm(south, west, north, east)
+        data = fetch_osm(bbox.south, bbox.west, bbox.north, bbox.east)
         anchors, elements, nodes_by_id, ways_by_id = parse_osm(data)
         geom_cache: dict = {}
-        mid_lat = (south + north) / 2.0
+        mid_lat = (bbox.south + bbox.north) / 2.0
         _, records, _, _, _ = build_all_indices(
             elements, nodes_by_id, ways_by_id, anchors, geom_cache, mid_lat=mid_lat,
         )
-        items = []
-        for rec in records:
-            if rec.anchor_id is not None:
-                continue  # skip synthetic anchor buffers
-            items.append({
+        items = [
+            {
                 "osm_type": rec.osm_type,
                 "osm_id": rec.osm_id,
                 "is_blocker": rec.is_los_blocker or rec.is_buf_blocker,
@@ -223,17 +194,22 @@ async def debug_rect(
                 "label": rec.label,
                 "category": rec.category,
                 "tags": rec.tags or {},
-            })
+            }
+            for rec in records
+            if rec.anchor_id is None  # skip synthetic anchor buffers
+        ]
         return {
-            "bbox": {"south": south, "west": west, "north": north, "east": east},
+            "bbox": {
+                "south": bbox.south, "west": bbox.west,
+                "north": bbox.north, "east": bbox.east,
+            },
             "n_raw_elements": len(elements),
             "n_anchors": len(anchors),
             "n_records": len(items),
             "records": items,
         }
 
-    result = await loop.run_in_executor(None, _run)
-    return result
+    return await loop.run_in_executor(None, _run)
 
 
 @app.get("/debug/corridor")
@@ -248,25 +224,24 @@ async def debug_corridor(
     Fetches a small bbox around the two nodes, classifies OSM elements,
     then runs get_corridor_features and returns the result.
     """
+    import math
     import requests as _req
 
     loop = asyncio.get_running_loop()
 
-    def _run():
-        # Fetch both nodes from the OSM API
-        def _fetch_node(nid):
-            r = _req.get(
-                f"https://api.openstreetmap.org/api/0.6/node/{nid}.json",
-                timeout=20, headers={"User-Agent": "Spotlines/1.0"},
-            )
-            r.raise_for_status()
-            el = r.json()["elements"][0]
-            return el["lon"], el["lat"], el.get("tags", {})
+    def _fetch_node(nid):
+        r = _req.get(
+            f"https://api.openstreetmap.org/api/0.6/node/{nid}.json",
+            timeout=20, headers={"User-Agent": "Spotlines/1.0"},
+        )
+        r.raise_for_status()
+        el = r.json()["elements"][0]
+        return el["lon"], el["lat"], el.get("tags", {})
 
+    def _run():
         lon_a, lat_a, tags_a = _fetch_node(node_a)
         lon_b, lat_b, tags_b = _fetch_node(node_b)
 
-        import math
         mid_lat = (lat_a + lat_b) / 2.0
         pad_lat = fetch_pad_m / 111_000
         pad_lon = fetch_pad_m / (111_000 * max(math.cos(math.radians(mid_lat)), 0.001))
@@ -292,7 +267,6 @@ async def debug_corridor(
             ((lon_b - lon_a) * 111_000 * math.cos(math.radians(mid_lat))) ** 2
             + ((lat_b - lat_a) * 111_000) ** 2
         )
-
         return {
             "node_a": {"id": node_a, "lon": lon_a, "lat": lat_a, "tags": tags_a},
             "node_b": {"id": node_b, "lon": lon_b, "lat": lat_b, "tags": tags_b},
@@ -309,27 +283,25 @@ async def debug_corridor(
     return result
 
 
+# ---------------------------------------------------------------------------
+# Main /spots endpoint
+# ---------------------------------------------------------------------------
+
 @app.get("/spots")
 async def get_spots(
-    south: float = Query(...),
-    west: float = Query(...),
-    north: float = Query(...),
-    east: float = Query(...),
+    bbox: Bbox,
     min_m: float = Query(default=15, ge=1, le=4000),
     max_m: float = Query(default=50, ge=1, le=4000),
     water: str = Query(default="any"),
     max_slope: float = Query(default=5, ge=0, le=90),
     clearance_m: float = Query(default=1, ge=0, le=50),
 ):
-    if abs(north - south) > 0.2 or abs(east - west) > 0.2:
-        raise HTTPException(400, "Bounding box exceeds 0.2° per side")
-    if south >= north or west >= east:
-        raise HTTPException(400, "Bounding box is invalid: south must be < north and west must be < east")
     if water not in ("any", "only", "exclude"):
         raise HTTPException(400, "water must be 'any', 'only', or 'exclude'")
     if min_m >= max_m:
         raise HTTPException(400, "min_m must be less than max_m")
 
+    south, west, north, east = bbox.south, bbox.west, bbox.north, bbox.east
     loop = asyncio.get_running_loop()
 
     def evt(status: str, pct: int) -> str:
@@ -413,9 +385,13 @@ async def get_spots(
 
         if pairs:
             yield evt(f"Building corridor features for {len(pairs)} pairs…", 85)
-            await loop.run_in_executor(None, partial(compute_corridor_features, pairs, element_tree, records, clearance_m, mid_lat))
+            await loop.run_in_executor(None, partial(
+                compute_corridor_features, pairs, element_tree, records, clearance_m, mid_lat,
+            ))
             if raster is not None:
-                await loop.run_in_executor(None, partial(compute_corridor_landuse, pairs, raster, south, west, north, east))
+                await loop.run_in_executor(None, partial(
+                    compute_corridor_landuse, pairs, raster, south, west, north, east,
+                ))
             pairs = filter_landuse_blockers(pairs)
         t7 = time.perf_counter()
 
@@ -437,7 +413,6 @@ async def get_spots(
             + json.dumps({"result": {"type": "FeatureCollection", "features": features}, "pct": 95})
             + "\n\n"
         )
-
         yield evt(f"Done. {len(features)} line{'s' if len(features) != 1 else ''} found.", 100)
 
     return StreamingResponse(
@@ -446,6 +421,10 @@ async def get_spots(
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
 
 def _filter_landuse(pairs, raster, south, west, north, east, clearance_m):
     """Run check_landuse_blocker on each pair; return only non-blocked pairs."""
@@ -492,5 +471,5 @@ def _pair_to_feature(p) -> dict:
 
 _FRONTEND = Path(__file__).parent.parent / "frontend"
 
-# Frontend must be mounted last so /spots and /slope are reachable
+# Frontend must be mounted last so /spots and other API routes are reachable
 app.mount("/", StaticFiles(directory=str(_FRONTEND), html=True), name="frontend")

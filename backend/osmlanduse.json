@@ -1,0 +1,80 @@
+{
+  "arable": {
+    "description": "Arable land — cereal, vegetable and other annual crops",
+    "color": "#b07138",
+    "allowed": false,
+    "water": false
+  },
+  "bare": {
+    "description": "Open spaces with little or no vegetation — beaches, dunes, bare rock",
+    "color": "#d2b986",
+    "allowed": true,
+    "water": false
+  },
+  "coastal_wetland": {
+    "description": "Coastal wetlands — salt marshes, intertidal flats",
+    "color": "#b7d6eb",
+    "allowed": true,
+    "water": true
+  },
+  "forest": {
+    "description": "Forests — broad-leaved, coniferous and mixed woodland",
+    "color": "#18653a",
+    "allowed": true,
+    "water": false
+  },
+  "industrial": {
+    "description": "Industrial, commercial and transport units",
+    "color": "#af0019",
+    "allowed": false,
+    "water": false
+  },
+  "meadow": {
+    "description": "Pastures — permanently grazed grassland",
+    "color": "#bbcb96",
+    "allowed": true,
+    "water": false
+  },
+  "park": {
+    "description": "Artificial non-agricultural vegetated areas — parks, gardens, sport facilities",
+    "color": "#a1cb5f",
+    "allowed": true,
+    "water": false
+  },
+  "permanent_crops": {
+    "description": "Permanent crops — vineyards, fruit trees, olive groves",
+    "color": "#b49950",
+    "allowed": false,
+    "water": false
+  },
+  "quarry": {
+    "description": "Mine, dump and construction sites — extraction sites, landfills",
+    "color": "#b0aba1",
+    "allowed": false,
+    "water": false
+  },
+  "scrub": {
+    "description": "Shrub and herbaceous vegetation — heath, moor, natural grassland",
+    "color": "#67a86b",
+    "allowed": true,
+    "water": false
+  },
+  "urban": {
+    "description": "Urban fabric — residential, commercial and built-up areas",
+    "color": "#df9683",
+    "allowed": false,
+    "water": false
+  },
+  "water": {
+    "description": "Water bodies — rivers, lakes, reservoirs, coastal water",
+    "color": "#456d9e",
+    "allowed": true,
+    "water": true
+  },
+  "wetland": {
+    "description": "Wetlands — inland marshes, peat bogs",
+    "color": "#7db99d",
+    "allowed": true,
+    "water": true
+  }
+}
