@@ -675,7 +675,7 @@ natural,sinkhole,#d2b986,A natural depression or hole in the surface topography.
 natural,spring,#7db99d,A place where ground water flows naturally from the ground,True,True,False,True
 natural,stone,#b2ada3,"A single notable freestanding rock, which may differ from the composition of the terrain it lies in.",False,False,False,False
 natural,strait,#7db99d,A narrow area of water surrounded by land on two sides and by water on two other sides.,True,True,False,True
-natural,tree,#18653a,A single tree.,False,False,False,False
+natural,tree,#18653a,A single tree.,False,False,True,False
 natural,tree_row,#18653a,A line of trees.,False,False,False,False
 natural,tundra,#67a86b,"Treeless cold climate habitat with open, low growing sedges, grasses, mosses and lichens.",True,True,False,False
 natural,valley,#d2b986,A natural depression flanked by ridges or ranges of mountains or hills,True,True,False,False
