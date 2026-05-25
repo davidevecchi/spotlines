@@ -7,7 +7,7 @@ from typing import Optional
 
 import numpy as np
 import shapely as _shapely_ufuncs
-from shapely.geometry import LineString, MultiPolygon, Point, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import polygonize, unary_union
 from shapely.strtree import STRtree
 from shapely.validation import make_valid

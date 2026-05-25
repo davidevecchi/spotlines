@@ -415,7 +415,7 @@ async def get_spots(
             yield evt(f"Building corridor features for {len(pairs)} pairs…", 85)
             await loop.run_in_executor(None, partial(compute_corridor_features, pairs, element_tree, records, clearance_m, mid_lat))
             if raster is not None:
-                await loop.run_in_executor(None, partial(compute_corridor_landuse, pairs, raster, south, west, north, east, clearance_m))
+                await loop.run_in_executor(None, partial(compute_corridor_landuse, pairs, raster, south, west, north, east))
             pairs = filter_landuse_blockers(pairs)
         t7 = time.perf_counter()
 

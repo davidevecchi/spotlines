@@ -10,7 +10,7 @@ from typing import Optional
 import numpy as np
 from shapely.strtree import STRtree
 
-from .geometry import EARTH_RADIUS, OsmRecord, check_los, get_corridor_features, haversine_m
+from .geometry import EARTH_RADIUS, check_los, get_corridor_features
 from .overpass import Anchor
 
 
@@ -161,7 +161,6 @@ def enumerate_pairs(
     element_tree: STRtree,
     records: list,
     clearance_m: float = 0.0,
-    mid_lat: float = 45.0,
 ) -> list[Pair]:
     pairs = get_distance_candidates(anchors, min_m, max_m)
     return apply_los_buffer(pairs, element_tree, records, clearance_m)
@@ -172,7 +171,6 @@ def compute_corridor_landuse(
     pairs: list[Pair],
     raster,
     south: float, west: float, north: float, east: float,
-    clearance_m: float = 0.0,
 ) -> None:
     """Append raster-based landuse features to each pair's corridor_features."""
     from .landuse import sample_landuse_along_line
@@ -182,7 +180,6 @@ def compute_corridor_landuse(
             p.anchor_b.lat, p.anchor_b.lon,
             south, west, north, east,
             img=raster,
-            clearance_m=clearance_m,
         )
         if lu:
             p.corridor_features = (p.corridor_features or []) + lu

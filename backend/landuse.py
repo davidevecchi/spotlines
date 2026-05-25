@@ -64,16 +64,15 @@ _PALETTE: list[tuple[tuple[int, int, int], str]] = [
     ((230, 230, 255), "coastal_wetland"), # Coastal wetlands
 ]
 
-_MAX_DIST = 30   # pixels further than this from all legend colours are unclassified
-
-
 def _nearest_type(r: int, g: int, b: int) -> str:
+    """Return the closest palette label. The filled WMS layer is exhaustive for all
+    land so every opaque pixel belongs to some category — no distance cutoff needed."""
     best_d, best_t = float("inf"), ""
     for (pr, pg, pb), t in _PALETTE:
         d = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2
         if d < best_d:
             best_d, best_t = d, t
-    return best_t if best_d <= _MAX_DIST ** 2 else ""
+    return best_t
 
 
 # ── Mercator helpers ──────────────────────────────────────────────────────────
@@ -85,7 +84,7 @@ def _to_merc(lat: float, lon: float) -> tuple[float, float]:
 
 
 def _bbox_key(s, w, n, e):
-    return (round(s, 3), round(w, 3), round(n, 3), round(e, 3))
+    return round(s, 3), round(w, 3), round(n, 3), round(e, 3)
 
 
 # ── Raster fetch / cache ──────────────────────────────────────────────────────
@@ -159,19 +158,14 @@ def sample_landuse_along_line(
     lat_b: float, lon_b: float,
     south: float, west: float, north: float, east: float,
     img: "Image | None" = None,
-    n: int = 50,
-    clearance_m: float = 0.0,
 ) -> list[dict]:
-    """Sample the landuse raster across the full corridor rectangle.
+    """Sample landuse along the centreline and return tiling, non-overlapping segments.
 
-    Samples a 2-D grid: n points along the line × 7 perpendicular offsets
-    spanning ±clearance_m.  For each unique landuse category, records which
-    t-indices have that category at any offset, then run-length encodes into
-    contiguous segments.  Multiple categories can overlap at the same t range.
-
-    `img` may be a pre-fetched PIL RGBA image; if None the raster is fetched.
-    Returns corridor features in the same {category, label, is_blocker, is_water,
-    tags, segments} format as get_corridor_features.
+    Classifies 51 equally-spaced points along the centreline (no perpendicular
+    buffer).  Each point gets exactly one landuse type.  Consecutive same-type
+    points are merged into one run; isolated interior singletons are absorbed by
+    the shorter neighbour.  The resulting t-values tile [0, 1] exactly so the
+    SVG strip and the bar strip always match with no gaps or overlaps.
     """
     if img is None:
         img, _ = get_or_fetch_raster(south, west, north, east)
@@ -183,64 +177,62 @@ def sample_landuse_along_line(
     bbox_w = east - west
     bbox_h = north - south
 
-    mid_lat = (lat_a + lat_b) / 2
-    cos_ml = max(math.cos(math.radians(mid_lat)), 0.001)
+    N = 51   # number of sample points; step = 1/50
 
-    # Perpendicular unit vector in degrees
-    dlat_m = (lat_b - lat_a) * 111_111
-    dlon_m = (lon_b - lon_a) * 111_111 * cos_ml
-    length_m = max(math.sqrt(dlat_m ** 2 + dlon_m ** 2), 5.0)
-    perp_lat_deg = -dlon_m / length_m / 111_111
-    perp_lon_deg =  dlat_m / length_m / (111_111 * cos_ml)
+    # ── 1. Classify each of the N centreline points to one type ──────────────
+    types: list[str] = []
+    for i in range(N):
+        t   = i / (N - 1)
+        lat = lat_a + t * (lat_b - lat_a)
+        lon = lon_a + t * (lon_b - lon_a)
+        px  = max(0, min(img_w - 1, int((lon - west) / bbox_w * img_w)))
+        py  = max(0, min(img_h - 1, int((north - lat) / bbox_h * img_h)))
+        r, g, b, a = pixels[px, py]
+        types.append(_nearest_type(r, g, b) if a >= 128 else "")
 
-    if clearance_m > 0:
-        w_offsets = [clearance_m * k / 3 for k in range(-3, 4)]  # 7 offsets
-    else:
-        w_offsets = [0.0]
+    # ── 2. Run-length encode into (start_idx, end_idx, lu) runs ──────────────
+    runs: list[list] = []     # mutable lists so we can update in-place
+    i = 0
+    while i < N:
+        j = i
+        while j + 1 < N and types[j + 1] == types[i]:
+            j += 1
+        runs.append([i, j, types[i]])
+        i = j + 1
 
-    ts = [i / (n - 1) for i in range(n)]
+    # ── 3. Merge interior singletons into shorter neighbour ───────────────────
+    changed = True
+    while changed:
+        changed = False
+        for idx, run in enumerate(runs):
+            s, e, lu = run
+            if s == e and s != 0 and e != N - 1:   # interior singleton
+                left_len  = (runs[idx - 1][1] - runs[idx - 1][0]) if idx > 0              else float("inf")
+                right_len = (runs[idx + 1][1] - runs[idx + 1][0]) if idx < len(runs) - 1 else float("inf")
+                if left_len <= right_len:
+                    runs[idx - 1][1] = e    # extend left run's end
+                else:
+                    runs[idx + 1][0] = s    # extend right run's start
+                runs.pop(idx)
+                changed = True
+                break
 
-    # cat_present[lu] is a boolean list indexed by t; True if lu seen at any offset
-    cat_present: dict[str, list[bool]] = {}
-
-    for i, t in enumerate(ts):
-        clat = lat_a + t * (lat_b - lat_a)
-        clon = lon_a + t * (lon_b - lon_a)
-        for w in w_offsets:
-            lat = clat + w * perp_lat_deg
-            lon = clon + w * perp_lon_deg
-            px = max(0, min(img_w - 1, int((lon - west) / bbox_w * img_w)))
-            py = max(0, min(img_h - 1, int((north - lat) / bbox_h * img_h)))
-            r, g, b, a = pixels[px, py]
-            lu = _nearest_type(r, g, b) if a >= 128 else ""
-            if lu:
-                if lu not in cat_present:
-                    cat_present[lu] = [False] * n
-                cat_present[lu][i] = True
-
+    # ── 4. Convert runs to tiling features (t_start / t_end share boundaries) ─
     features: list[dict] = []
-    for lu, present in cat_present.items():
-        segs: list[dict] = []
-        in_seg = False
-        start = 0
-        for i, hit in enumerate(present):
-            if hit and not in_seg:
-                in_seg, start = True, i
-            elif not hit and in_seg:
-                in_seg = False
-                segs.append({"t_start": round(ts[start], 3), "t_end": round(ts[i - 1], 3)})
-        if in_seg:
-            segs.append({"t_start": round(ts[start], 3), "t_end": round(ts[n - 1], 3)})
-        if segs:
-            features.append({
-                "category": "osmlanduse",
-                "label": lu.replace("_", " ").capitalize(),
-                "name": None,
-                "is_blocker": lu not in _ALLOWED,
-                "is_water": lu in _WATER,
-                "tags": {},
-                "segments": segs,
-            })
+    for s, e, lu in runs:
+        if not lu:
+            continue
+        t_start = round(s / (N - 1), 4)
+        t_end   = round(min((e + 1) / (N - 1), 1.0), 4)
+        features.append({
+            "category": "osmlanduse",
+            "label":     lu.replace("_", " ").capitalize(),
+            "name":      None,
+            "is_blocker": lu not in _ALLOWED,
+            "is_water":   lu in _WATER,
+            "tags":      {},
+            "segments":  [{"t_start": t_start, "t_end": t_end}],
+        })
 
     return features
 

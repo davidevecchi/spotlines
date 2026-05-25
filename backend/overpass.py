@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from threading import Lock
 
 import requests
@@ -90,14 +90,12 @@ def parse_osm(
         elif etype == "way":
             ways_by_id[eid] = el
 
-    anchors = _parse_anchors(elements, nodes_by_id, ways_by_id)
+    anchors = _parse_anchors(elements)
     return anchors, elements, nodes_by_id, ways_by_id
 
 
 def _parse_anchors(
     elements: list[dict],
-    nodes_by_id: dict[int, dict],
-    ways_by_id: dict[int, dict],
 ) -> list[Anchor]:
     """Extract anchor points from OSM elements based on feature_map anchor flag."""
     anchors: list[Anchor] = []

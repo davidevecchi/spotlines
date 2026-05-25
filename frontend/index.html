@@ -1528,17 +1528,14 @@ function elevSvg(terrain, elevA, elevB, corridorFeatures, distance_m, W, H) {
     }
   }
 
-  // Terrain strips from corridor_features segments (exclude place/boundary)
+  // Terrain strips — osmlanduse only, same normalization as the strip bar.
   let strips = '';
   if (corridorFeatures && corridorFeatures.length) {
-    for (const feat of corridorFeatures) {
-      if (_PLACE_CATS.has(feat.category)) continue;
-      const col = featureColor(feat);
-      for (const seg of (feat.segments || [])) {
-        const x1 = PL + seg.t_start * iW, x2 = PL + seg.t_end * iW;
-        const w  = Math.max(x2 - x1, 1);
-        strips += `<rect x="${x1.toFixed(2)}" y="${PT.toFixed(2)}" width="${w.toFixed(2)}" height="${iH.toFixed(2)}" fill="${col}" opacity="0.08"/>`;
-      }
+    const luFeats = corridorFeatures.filter(f => f.category === 'osmlanduse');
+    for (const s of _normalizeLanduseSegs(luFeats)) {
+      const x1 = PL + s.t_start * iW;
+      const w  = (s.t_end - s.t_start) * iW;
+      strips += `<rect x="${x1.toFixed(2)}" y="${PT}" width="${Math.max(w, 0).toFixed(2)}" height="${iH}" fill="${s.col}" opacity="0.13"/>`;
     }
   }
 
@@ -1612,49 +1609,114 @@ function buildSelectedTooltip(p, t) {
   return `<div class="tip-dist">${distPart}${terrainPart}</div>`;
 }
 
+// Collect and sort osmlanduse segments. Backend already produces tiling,
+// non-overlapping segments, so no gap-closing or merging is needed here.
+function _normalizeLanduseSegs(landuseFeats) {
+  const segs = [];
+  for (const f of landuseFeats) {
+    const col   = featureColor(f);
+    const label = f.label || f.category || '';
+    for (const s of (f.segments || []))
+      segs.push({ t_start: s.t_start, t_end: s.t_end, col, label });
+  }
+  return segs.sort((a, b) => a.t_start - b.t_start);
+}
+
+// Render a single combined strip bar for all osmlanduse segments + a color legend below.
+function _buildLanduseStrip(landuseFeats) {
+  if (!landuseFeats.length) return '';
+
+  const segments = _normalizeLanduseSegs(landuseFeats);
+  if (!segments.length) return '';
+
+  // Legend — derived from surviving segments in appearance order.
+  const legendOrder = [];
+  const legendSeen = new Map();
+  for (const s of segments) {
+    if (!legendSeen.has(s.label)) { legendSeen.set(s.label, s.col); legendOrder.push([s.label, s.col]); }
+  }
+
+  // Use left + right (both from t values directly) so the two edges of every
+  // segment are each computed independently — no additive precision loss.
+  const fills = segments.map(s => {
+    const left  = (s.t_start * 100).toFixed(3);
+    const right = ((1 - s.t_end) * 100).toFixed(3);
+    return `<div title="${_escXml(s.label)}" style="position:absolute;left:${left}%;right:${right}%;height:100%;background:${s.col}"></div>`;
+  }).join('');
+
+  const strip = `<div style="position:relative;height:7px;background:rgba(180,140,90,0.13);border-radius:3px;overflow:hidden;margin:3px 0 4px">${fills}</div>`;
+
+  const legendItems = legendOrder.map(([label, col]) =>
+    `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:7px;white-space:nowrap">` +
+    `<span style="display:inline-block;width:7px;height:7px;border-radius:1px;background:${col};flex-shrink:0"></span>` +
+    `<span style="font-size:9px;color:#57534e">${_escXml(label)}</span></span>`
+  ).join('');
+  const legend = `<div style="display:flex;flex-wrap:wrap;gap:1px 0;margin-top:1px">${legendItems}</div>`;
+
+  return `<div style="margin-bottom:5px">` +
+    `<div style="font-size:9px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#a8a29e;margin-bottom:2px">Land use</div>` +
+    strip + legend + `</div>`;
+}
+
 function buildCorridorFeatureList(feats) {
   if (!feats || !feats.length) return '';
-  let rows = '';
-  // Aggregate features by (category, label) so duplicate entries from OSM+landuse merge
-  const merged = [];
-  const mergeKey = f => `${f.category}|${featureLabel(f)}`;
-  const seen = new Map();
-  for (const f of feats) {
-    const k = mergeKey(f);
-    if (seen.has(k)) {
-      const m = merged[seen.get(k)];
-      for (const s of (f.segments || [])) m.segments.push(s);
-    } else {
-      seen.set(k, merged.length);
-      merged.push({ ...f, segments: [...(f.segments || [])] });
-    }
-  }
 
-  for (const f of merged) {
-    const col = featureColor(f);
-    const segsArr = (f.segments || []).slice().sort((a, b) => a.t_start - b.t_start);
-    const flagBlocker = f.is_blocker ? '<span style="color:#dc2626;font-size:9px;margin-left:4px">blocker</span>' : '';
-    const flagWater   = f.is_water   ? '<span style="color:#0369a1;font-size:9px;margin-left:4px">water</span>'   : '';
+  // Split into osmlanduse vs overpass features
+  const landuseRaw = feats.filter(f => f.category === 'osmlanduse');
+  const overpassRaw = feats.filter(f => f.category !== 'osmlanduse');
 
-    let barHtml = '';
-    if (segsArr.length) {
-      const fills = segsArr.map(s => {
-        const barX = (s.t_start * 100).toFixed(1);
-        const barW = Math.max((s.t_end - s.t_start) * 100, 0.5).toFixed(1);
-        return `<div style="position:absolute;left:${barX}%;width:${barW}%;height:100%;background:${col};opacity:0.75;border-radius:2px"></div>`;
-      }).join('');
-      barHtml = `<div style="margin-top:2px;position:relative;height:5px;background:rgba(180,140,90,0.15);border-radius:2px;overflow:hidden">${fills}</div>`;
+  // ── Overpass: aggregate duplicates by (category, label), render one row each ──
+  let overpassHtml = '';
+  if (overpassRaw.length) {
+    const merged = [];
+    const mergeKey = f => `${f.category}|${featureLabel(f)}`;
+    const seen = new Map();
+    for (const f of overpassRaw) {
+      const k = mergeKey(f);
+      if (seen.has(k)) {
+        const m = merged[seen.get(k)];
+        for (const s of (f.segments || [])) m.segments.push(s);
+      } else {
+        seen.set(k, merged.length);
+        merged.push({ ...f, segments: [...(f.segments || [])] });
+      }
     }
 
-    const valuePart = f.label ? _escXml(f.label) : _escXml(f.category || '');
-    const namePart  = f.label && f.name ? `<span style="font-weight:400">: ${_escXml(f.name)}</span>` : '';
-    const keyPart   = f.label ? `<span style="color:#a8a29e;font-weight:400;font-size:9px;margin-left:4px">${_escXml(f.category||'')}</span>` : '';
-    rows += `<div style="margin-bottom:5px">` +
-      `<div style="font-size:10px;font-weight:600;color:${col}">${valuePart}${namePart}${keyPart}` +
-      flagBlocker + flagWater + `</div>` +
-      barHtml + `</div>`;
+    let rows = '';
+    for (const f of merged) {
+      const col      = featureColor(f);
+      const segsArr  = (f.segments || []).slice().sort((a, b) => a.t_start - b.t_start);
+      const flagBlocker = f.is_blocker ? '<span style="color:#dc2626;font-size:9px;margin-left:4px">blocker</span>' : '';
+      const flagWater   = f.is_water   ? '<span style="color:#0369a1;font-size:9px;margin-left:4px">water</span>'   : '';
+
+      let barHtml = '';
+      if (segsArr.length) {
+        const fills = segsArr.map(s => {
+          const barX = (s.t_start * 100).toFixed(1);
+          const barW = Math.max((s.t_end - s.t_start) * 100, 0.5).toFixed(1);
+          return `<div style="position:absolute;left:${barX}%;width:${barW}%;height:100%;background:${col};opacity:0.75;border-radius:2px"></div>`;
+        }).join('');
+        barHtml = `<div style="margin-top:2px;position:relative;height:5px;background:rgba(180,140,90,0.15);border-radius:2px;overflow:hidden">${fills}</div>`;
+      }
+
+      const valuePart = f.label ? _escXml(f.label) : _escXml(f.category || '');
+      const namePart  = f.label && f.name ? `<span style="font-weight:400">: ${_escXml(f.name)}</span>` : '';
+      const keyPart   = f.label ? `<span style="color:#a8a29e;font-weight:400;font-size:9px;margin-left:4px">${_escXml(f.category||'')}</span>` : '';
+      rows += `<div style="margin-bottom:5px">` +
+        `<div style="font-size:10px;font-weight:600;color:${col}">${valuePart}${namePart}${keyPart}` +
+        flagBlocker + flagWater + `</div>` +
+        barHtml + `</div>`;
+    }
+    overpassHtml = rows;
   }
-  return `<div style="margin-top:4px;padding:7px 8px;background:rgba(0,0,0,0.03);border-radius:5px;border:1px solid rgba(180,140,90,0.15)">${rows}</div>`;
+
+  // ── osmlanduse: single merged strip + legend ──
+  const landuseHtml = _buildLanduseStrip(landuseRaw);
+
+  const inner = (overpassHtml ? `<div style="margin-bottom:${landuseHtml ? 7 : 0}px">${overpassHtml}</div>` : '') +
+                landuseHtml;
+
+  return `<div style="margin-top:4px;padding:7px 8px;background:rgba(0,0,0,0.03);border-radius:5px;border:1px solid rgba(180,140,90,0.15)">${inner}</div>`;
 }
 
 function buildDetailHtml(p, coords) {
