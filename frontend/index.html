@@ -1,589 +1,1118 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Spotlines</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { overflow: hidden; font-family: system-ui, sans-serif; }
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spotlines</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css">
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
-    #map { position: fixed; inset: 0; z-index: 0; }
+        body {
+            overflow: hidden;
+            font-family: system-ui, sans-serif;
+        }
 
-    /* ── Island base ── */
-    .island {
-      background: rgba(250,246,240,0.93);
-      border: 1px solid rgba(180,140,90,0.22);
-      box-shadow: 0 4px 20px rgba(0,0,0,0.14);
-      border-radius: 10px;
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      color: #292524;
-    }
+        #map {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+        }
 
-    /* ── Left column ── */
-    #left-col {
-      position: fixed; top: 10px; bottom: 10px; left: 10px;
-      width: 320px; display: flex; flex-direction: column; gap: 8px;
-      pointer-events: none; z-index: 1000;
-    }
-    #panel-filters { pointer-events: all; flex-shrink: 0; padding: 0; }
-    #panel-detail  { pointer-events: all; flex: 1; min-height: 0; overflow-y: auto;
-                     display: none; padding: 12px 14px; position: relative; }
+        /* ── Island base ── */
+        .island {
+            background: rgba(250, 246, 240, 0.93);
+            border: 1px solid rgba(180, 140, 90, 0.22);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.14);
+            border-radius: 10px;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            color: #292524;
+        }
 
-    /* ── Right column ── */
-    #right-col {
-      position: fixed; top: 10px; bottom: 10px; right: 10px;
-      display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
-      pointer-events: none; z-index: 1000;
-    }
-    #legend { padding: 9px 13px; display: none; margin-top: auto; }
+        /* ── Left column ── */
+        #left-col {
+            position: fixed;
+            top: 10px;
+            bottom: 10px;
+            left: 10px;
+            width: 320px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            pointer-events: none;
+            z-index: 1000;
+        }
 
-    /* ── Progress bar ── */
-    #progress-wrap {
-      position: fixed; top: 0; left: 0; right: 0; height: 3px;
-      z-index: 9999; pointer-events: none;
-    }
-    #progress-bar {
-      height: 100%; width: 0%; background: #b45309;
-      transition: width 0.3s ease, opacity 0.4s ease; opacity: 0;
-    }
+        #panel-filters {
+            pointer-events: all;
+            flex-shrink: 0;
+            padding: 0;
+        }
 
-    /* ── Filter panel internals ── */
-    .panel-title {
-      font-size: 11px; font-weight: 700; letter-spacing: 0.09em;
-      text-transform: uppercase; color: #57534e; margin-bottom: 11px;
-    }
+        #panel-detail {
+            pointer-events: all;
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            display: none;
+            padding: 12px 14px;
+            position: relative;
+        }
 
-    /* App header inside filter panel */
-    .app-header {
-      display: flex; align-items: center; gap: 8px; margin-bottom: 0;
-    }
-    .app-logo {
-      width: 28px; height: 22px; flex-shrink: 0;
-      color: #b45309;
-    }
-    .app-name {
-      font-size: 15px; font-weight: 700; letter-spacing: -0.02em;
-      color: #1c1917; line-height: 1;
-    }
-    .app-name span {
-      display: block; font-size: 9px; font-weight: 500;
-      letter-spacing: 0.12em; text-transform: uppercase;
-      color: #78716c; margin-top: 1px;
-    }
+        /* ── Right column ── */
+        #right-col {
+            position: fixed;
+            top: 10px;
+            bottom: 10px;
+            right: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+            pointer-events: none;
+            z-index: 1000;
+        }
 
-    /* Section separator */
-    .section-sep {
-      border: none; border-top: 1px solid rgba(180,140,90,0.18);
-      margin: 12px 0;
-    }
+        #legend {
+            padding: 9px 13px;
+            display: none;
+            margin-top: auto;
+        }
 
-    /* Panel sections with hairline dividers */
-    .panel-section {
-      padding: 7px 14px;
-    }
-    .panel-section + .panel-section {
-      border-top: 1px solid rgba(180,140,90,0.22);
-    }
-    .section-hint {
-      margin-left: auto;
-      font-size: 10px; font-weight: 400;
-      letter-spacing: 0; text-transform: none;
-      color: #78716c;
-    }
+        /* ── Progress bar ── */
+        #progress-wrap {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            z-index: 9999;
+            pointer-events: none;
+        }
 
-    /* Status chip */
-    #status {
-      margin-top: 8px; font-size: 11px; line-height: 1.4; min-height: 22px;
-      padding: 3px 9px; border-radius: 20px; display: inline-flex;
-      align-items: center; gap: 5px;
-      background: rgba(0,0,0,0.04); color: #78716c;
-      transition: background 0.2s, color 0.2s;
-    }
-    #status::before {
-      content: ''; display: inline-block; width: 6px; height: 6px;
-      border-radius: 50%; background: currentColor; flex-shrink: 0;
-      opacity: 0.5;
-    }
-    #status[data-state="ready"]   { background: #d1fae5; color: #065f46; }
-    #status[data-state="ready"]::before { opacity: 1; }
-    #status[data-state="loading"] { background: #dbeafe; color: #1e40af; }
-    #status[data-state="loading"]::before { animation: pulse-dot 1s ease-in-out infinite; opacity: 1; }
-    #status[data-state="done"]    { background: #d1fae5; color: #065f46; }
-    #status[data-state="done"]::before { opacity: 1; }
-    #status[data-state="error"]   { background: #fee2e2; color: #991b1b; }
-    #status[data-state="error"]::before { opacity: 1; }
-    @keyframes pulse-dot {
-      0%, 100% { transform: scale(1); opacity: 1; }
-      50%       { transform: scale(1.6); opacity: 0.6; }
-    }
+        #progress-bar {
+            height: 100%;
+            width: 0%;
+            background: #b45309;
+            transition: width 0.3s ease, opacity 0.4s ease;
+            opacity: 0;
+        }
 
-    /* Section collapsibles */
-    .section-details {
-      margin-bottom: 0;
-    }
-    .section-details summary {
-      font-size: 10px; font-weight: 700; letter-spacing: 0.09em;
-      text-transform: uppercase; color: #57534e;
-      cursor: pointer; list-style: none; display: flex;
-      align-items: center; gap: 5px; user-select: none;
-      padding: 5px 0 6px;
-    }
-    .section-details summary::-webkit-details-marker { display: none; }
-    .section-details summary::before {
-      content: '▸'; font-size: 8px; color: #a8a29e;
-      transition: transform 0.18s; display: inline-block;
-    }
-    .section-details[open] summary::before { transform: rotate(90deg); }
-    .section-details summary:hover { color: #292524; }
-    .section-details summary:hover::before { color: #78716c; }
-    .section-body { padding-bottom: 4px; }
+        /* ── Filter panel internals ── */
+        .panel-title {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+            color: #57534e;
+            margin-bottom: 11px;
+        }
 
-    .field-row { margin-bottom: 18px; }
-    .field-label {
-      font-size: 11px; color: #44403c; margin-bottom: 5px;
-      display: flex; justify-content: space-between; align-items: baseline;
-    }
-    .field-label strong { color: #1c1917; font-size: 12px; font-weight: 600; }
+        /* App header inside filter panel */
+        .app-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 0;
+        }
 
-    /* noUiSlider skin */
-    .noUi-target {
-      background: rgba(180,140,90,0.18); border: 1px solid rgba(180,140,90,0.28);
-      box-shadow: none; height: 4px; border-radius: 2px;
-    }
-    .noUi-connect { background: #b45309; }
-    .noUi-handle {
-      background: #fff; border: 2px solid #b45309;
-      box-shadow: 0 1px 5px rgba(0,0,0,0.18);
-      width: 14px !important; height: 14px !important;
-      right: -7px !important; top: -6px !important;
-      border-radius: 50%; cursor: pointer;
-    }
-    .noUi-handle::before, .noUi-handle::after { display: none; }
-    .noUi-tooltip {
-      font-size: 10px; padding: 1px 5px;
-      background: #292524; border: none; color: #fff; border-radius: 3px;
-      bottom: 130%;
-    }
+        .app-logo {
+            width: 28px;
+            height: 22px;
+            flex-shrink: 0;
+            color: #b45309;
+        }
 
-    /* Mini inputs */
-    .mini-input {
-      width: 62px; padding: 4px 7px;
-      border: 1px solid rgba(180,140,90,0.32); border-radius: 5px;
-      font-size: 13px; color: #292524; background: rgba(255,255,255,0.7);
-      -moz-appearance: textfield;
-    }
-    .mini-input::-webkit-outer-spin-button,
-    .mini-input::-webkit-inner-spin-button { -webkit-appearance: none; }
-    .mini-input:focus { outline: none; border-color: #b45309; box-shadow: 0 0 0 2px rgba(180,83,9,0.12); }
-    .input-unit { font-size: 12px; color: #44403c; }
-    .input-row { display: flex; align-items: center; gap: 5px; }
+        .app-name {
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: #1c1917;
+            line-height: 1;
+        }
 
-    select.mini-select {
-      width: 100%; padding: 5px 7px;
-      border: 1px solid rgba(180,140,90,0.32); border-radius: 5px;
-      font-size: 13px; color: #292524; background: rgba(255,255,255,0.7);
-      cursor: pointer; appearance: auto;
-    }
-    select.mini-select:focus { outline: none; border-color: #b45309; }
+        .app-name span {
+            display: block;
+            font-size: 9px;
+            font-weight: 500;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #78716c;
+            margin-top: 1px;
+        }
 
-    /* Buttons */
-    .btn-row { display: flex; gap: 6px; margin-top: 0; }
-    .btn-secondary {
-      flex: 1; padding: 7px 0;
-      background: rgba(255,255,255,0.65); border: 1px solid rgba(180,140,90,0.35);
-      border-radius: 6px; font-size: 12px; font-weight: 600; color: #78716c;
-      cursor: pointer; transition: background 0.15s, border-color 0.15s;
-    }
-    .btn-secondary:hover { background: rgba(255,255,255,0.95); }
-    .btn-secondary.active {
-      background: #fef3c7; border-color: #b45309; color: #92400e;
-    }
-    .btn-primary {
-      flex: 1; padding: 7px 0;
-      background: #b45309; border: none;
-      border-radius: 6px; font-size: 12px; font-weight: 700; color: #fff;
-      cursor: pointer; transition: background 0.15s;
-    }
-    .btn-primary:hover:not(:disabled) { background: #92400e; }
-    .btn-primary:disabled { background: #d4c8b4; cursor: not-allowed; color: #a8a29e; }
+        /* Section separator */
+        .section-sep {
+            border: none;
+            border-top: 1px solid rgba(180, 140, 90, 0.18);
+            margin: 12px 0;
+        }
 
-    /* ── Detail panel ── */
-    #detail-close {
-      position: absolute; top: 9px; right: 10px;
-      background: none; border: none; font-size: 17px; color: #a8a29e;
-      cursor: pointer; line-height: 1; padding: 2px 4px;
-    }
-    #detail-close:hover { color: #292524; }
-    .detail-title { font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #a8a29e; margin-bottom: 10px; }
-    .sl-detail .dist { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
-    .sl-detail .sub { color: #78716c; margin-bottom: 4px; font-size: 12px; }
-    .sl-detail .elev-row { color: #44403c; font-size: 12px; margin-bottom: 3px; }
-    .water-tag {
-      display: inline-block; background: #eff6ff; color: #1d4ed8;
-      border: 1px solid #bfdbfe; border-radius: 3px;
-      padding: 1px 7px; font-size: 11px; font-weight: 600; margin-right: 5px;
-    }
-    .anchor-card {
-      background: rgba(255,255,255,0.55); border: 1px solid rgba(180,140,90,0.2);
-      border-radius: 6px; padding: 7px 9px; margin-top: 7px; font-size: 12px;
-    }
-    .anchor-card .ac-title { font-weight: 700; font-size: 12px; margin-bottom: 2px; color: #292524; }
-    .anchor-card .ac-row { color: #78716c; }
-    .anchor-card a { color: #b45309; text-decoration: none; font-size: 11px; }
-    .anchor-card a:hover { text-decoration: underline; }
-    .copy-btn {
-      background: none; border: 1px solid rgba(180,140,90,0.32); border-radius: 4px;
-      font-size: 10px; color: #78716c; cursor: pointer; padding: 2px 7px; flex-shrink: 0;
-      transition: border-color 0.12s, color 0.12s;
-    }
-    .copy-btn:hover { border-color: #b45309; color: #b45309; }
-    .focus-btn {
-      background: none; border: 1px solid rgba(180,140,90,0.32); border-radius: 5px;
-      font-size: 11px; color: #78716c; cursor: pointer; padding: 3px 9px; flex-shrink: 0;
-      white-space: nowrap; transition: border-color 0.12s, color 0.12s;
-    }
-    .focus-btn:hover { border-color: #b45309; color: #b45309; }
+        /* Panel sections with hairline dividers */
+        .panel-section {
+            padding: 7px 14px;
+        }
 
-    /* ── Layer panel ── */
-    #panel-layers { pointer-events: all; position: relative; flex-shrink: 0; }
+        .panel-section + .panel-section {
+            border-top: 1px solid rgba(180, 140, 90, 0.22);
+        }
 
-    #layers-btn {
-      display: flex; align-items: center; justify-content: center;
-      width: 36px; height: 36px;
-      background: rgba(250,246,240,0.93);
-      border: 1px solid rgba(180,140,90,0.22);
-      box-shadow: 0 4px 20px rgba(0,0,0,0.14);
-      border-radius: 8px; cursor: pointer;
-      font-size: 19px; color: #78716c;
-      transition: color 0.15s;
-    }
-    #layers-btn:hover { color: #b45309; }
+        .section-hint {
+            margin-left: auto;
+            font-size: 10px;
+            font-weight: 400;
+            letter-spacing: 0;
+            text-transform: none;
+            color: #78716c;
+        }
 
-    #layers-expanded {
-      display: none; position: absolute; top: 0; right: 0;
-      background: rgba(250,246,240,0.97);
-      border: 1px solid rgba(180,140,90,0.22);
-      box-shadow: 0 4px 20px rgba(0,0,0,0.14);
-      border-radius: 10px; padding: 11px 13px; min-width: 190px;
-    }
-    #panel-layers:hover #layers-expanded { display: block; }
-    #panel-layers:hover #layers-btn    { opacity: 0; pointer-events: none; }
+        /* Status chip */
+        #status {
+            margin-top: 8px;
+            font-size: 11px;
+            line-height: 1.4;
+            min-height: 22px;
+            padding: 3px 9px;
+            border-radius: 20px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: rgba(0, 0, 0, 0.04);
+            color: #78716c;
+            transition: background 0.2s, color 0.2s;
+        }
 
-    .layer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 9px; }
-    .layer-thumb {
-      position: relative; cursor: pointer; border-radius: 6px; overflow: hidden;
-      border: 2px solid transparent; transition: border-color 0.15s;
-      text-align: center;
-    }
-    .layer-thumb.active { border-color: #b45309; }
-    .layer-thumb:hover:not(.active) { border-color: rgba(180,140,90,0.5); }
-    .thumb-img { height: 38px; width: 100%; }
-    .layer-thumb span { display: block; padding: 3px 2px; font-size: 9px; font-weight: 700; color: #44403c; text-transform: uppercase; letter-spacing: 0.04em; }
-    .thumb-check {
-      position: absolute; top: 3px; right: 3px;
-      width: 13px; height: 13px;
-      background: rgba(255,255,255,0.55); border: 1.5px solid rgba(100,80,50,0.35);
-      border-radius: 3px; font-size: 9px; color: transparent;
-      display: flex; align-items: center; justify-content: center;
-      transition: background 0.15s, border-color 0.15s, color 0.15s;
-      line-height: 1; pointer-events: none;
-    }
-    .layer-thumb.active .thumb-check {
-      background: #b45309; border-color: #b45309; color: #fff;
-    }
+        #status::before {
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+            flex-shrink: 0;
+            opacity: 0.5;
+        }
 
-    .overlay-section { border-top: 1px solid rgba(180,140,90,0.18); padding-top: 7px; }
-    .section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: #a8a29e; margin-bottom: 6px; }
-    .overlay-row { display: flex; align-items: center; gap: 6px; font-size: 11px; margin-bottom: 5px; color: #44403c; cursor: pointer; user-select: none; }
-    .overlay-row input[type=checkbox] { accent-color: #b45309; cursor: pointer; width: 13px; height: 13px; }
-    .overlay-row.disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+        #status[data-state="ready"] {
+            background: #d1fae5;
+            color: #065f46;
+        }
 
-    /* Geolocate */
-    #geolocate-btn {
-      pointer-events: all; display: flex; align-items: center; justify-content: center;
-      width: 36px; height: 36px;
-      background: rgba(250,246,240,0.93);
-      border: 1px solid rgba(180,140,90,0.22);
-      box-shadow: 0 4px 20px rgba(0,0,0,0.14);
-      border-radius: 8px; cursor: pointer;
-      font-size: 19px; color: #78716c; transition: color 0.15s;
-    }
-    #geolocate-btn:hover { color: #b45309; }
+        #status[data-state="ready"]::before {
+            opacity: 1;
+        }
 
-    /* ── Legend internals ── */
-    #legend b { font-size: 12px; }
-    #legend-bar, #slope-bar, #elev-bar { display: block; width: 100%; height: 10px; border-radius: 3px; margin: 5px 0 2px; }
-    #legend-labels { display: flex; justify-content: space-between; color: #78716c; font-size: 12px; }
-    .legend-water { display: flex; align-items: center; gap: 6px; margin-top: 7px; color: #78716c; font-size: 12px; }
-    .dash-sample { width: 28px; height: 0; border-top: 3px dashed #4a9eff; display: inline-block; }
+        #status[data-state="loading"] {
+            background: #dbeafe;
+            color: #1e40af;
+        }
 
-    /* ── Elev hover tooltip ── */
-    #elev-tip {
-      position: fixed; display: none; pointer-events: none; z-index: 9999;
-      background: rgba(250,246,240,0.97); border: 1px solid rgba(180,140,90,0.28);
-      border-radius: 6px; padding: 4px 9px; font-size: 11px; color: #292524; line-height: 1.5;
-      white-space: nowrap; box-shadow: 0 2px 12px rgba(0,0,0,0.1);
-      backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
-    }
+        #status[data-state="loading"]::before {
+            animation: pulse-dot 1s ease-in-out infinite;
+            opacity: 1;
+        }
 
-    /* ── Tooltip ── */
-    .leaflet-tooltip.sl-tip {
-      padding: 6px 9px;
-      background: rgba(250,246,240,0.97);
-      border: 1px solid rgba(180,140,90,0.25);
-      border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-      white-space: normal; max-width: 240px;
-      backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
-    }
-    .leaflet-tooltip.sl-tip::before { border-top-color: rgba(250,246,240,0.97); }
-    .tip-dist { color: #292524; font-size: 12px; font-weight: 700; margin-bottom: 3px; }
+        #status[data-state="done"] {
+            background: #d1fae5;
+            color: #065f46;
+        }
 
-    /* Hide Leaflet's draw/edit/delete toolbar */
-    .leaflet-draw { display: none !important; }
-    /* Hide default attribution Leaflet controls that conflict */
-    .leaflet-top.leaflet-left { top: 10px; left: 280px; }
-    .leaflet-top.leaflet-right { top: 10px; right: 60px; }
-    .sl-chev { display:inline-block;transition:transform 0.15s;margin-right:4px;font-style:normal }
-    details[open] > summary .sl-chev { transform:rotate(90deg) }
-  </style>
+        #status[data-state="done"]::before {
+            opacity: 1;
+        }
+
+        #status[data-state="error"] {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        #status[data-state="error"]::before {
+            opacity: 1;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.6);
+                opacity: 0.6;
+            }
+        }
+
+        /* Section collapsibles */
+        .section-details {
+            margin-bottom: 0;
+        }
+
+        .section-details summary {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+            color: #57534e;
+            cursor: pointer;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            user-select: none;
+            padding: 5px 0 6px;
+        }
+
+        .section-details summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .section-details summary::before {
+            content: '▸';
+            font-size: 8px;
+            color: #a8a29e;
+            transition: transform 0.18s;
+            display: inline-block;
+        }
+
+        .section-details[open] summary::before {
+            transform: rotate(90deg);
+        }
+
+        .section-details summary:hover {
+            color: #292524;
+        }
+
+        .section-details summary:hover::before {
+            color: #78716c;
+        }
+
+        .section-body {
+            padding-bottom: 4px;
+        }
+
+        .field-row {
+            margin-bottom: 18px;
+        }
+
+        .field-label {
+            font-size: 11px;
+            color: #44403c;
+            margin-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+
+        .field-label strong {
+            color: #1c1917;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        /* noUiSlider skin */
+        .noUi-target {
+            background: rgba(180, 140, 90, 0.18);
+            border: 1px solid rgba(180, 140, 90, 0.28);
+            box-shadow: none;
+            height: 4px;
+            border-radius: 2px;
+        }
+
+        .noUi-connect {
+            background: #b45309;
+        }
+
+        .noUi-handle {
+            background: #fff;
+            border: 2px solid #b45309;
+            box-shadow: 0 1px 5px rgba(0, 0, 0, 0.18);
+            width: 14px !important;
+            height: 14px !important;
+            right: -7px !important;
+            top: -6px !important;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .noUi-handle::before, .noUi-handle::after {
+            display: none;
+        }
+
+        .noUi-tooltip {
+            font-size: 10px;
+            padding: 1px 5px;
+            background: #292524;
+            border: none;
+            color: #fff;
+            border-radius: 3px;
+            bottom: 130%;
+        }
+
+        /* Mini inputs */
+        .mini-input {
+            width: 62px;
+            padding: 4px 7px;
+            border: 1px solid rgba(180, 140, 90, 0.32);
+            border-radius: 5px;
+            font-size: 13px;
+            color: #292524;
+            background: rgba(255, 255, 255, 0.7);
+            -moz-appearance: textfield;
+        }
+
+        .mini-input::-webkit-outer-spin-button,
+        .mini-input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+        }
+
+        .mini-input:focus {
+            outline: none;
+            border-color: #b45309;
+            box-shadow: 0 0 0 2px rgba(180, 83, 9, 0.12);
+        }
+
+        .input-unit {
+            font-size: 12px;
+            color: #44403c;
+        }
+
+        .input-row {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        select.mini-select {
+            width: 100%;
+            padding: 5px 7px;
+            border: 1px solid rgba(180, 140, 90, 0.32);
+            border-radius: 5px;
+            font-size: 13px;
+            color: #292524;
+            background: rgba(255, 255, 255, 0.7);
+            cursor: pointer;
+            appearance: auto;
+        }
+
+        select.mini-select:focus {
+            outline: none;
+            border-color: #b45309;
+        }
+
+        /* Buttons */
+        .btn-row {
+            display: flex;
+            gap: 6px;
+            margin-top: 0;
+        }
+
+        .btn-secondary {
+            flex: 1;
+            padding: 7px 0;
+            background: rgba(255, 255, 255, 0.65);
+            border: 1px solid rgba(180, 140, 90, 0.35);
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #78716c;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.95);
+        }
+
+        .btn-secondary.active {
+            background: #fef3c7;
+            border-color: #b45309;
+            color: #92400e;
+        }
+
+        .btn-primary {
+            flex: 1;
+            padding: 7px 0;
+            background: #b45309;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #fff;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #92400e;
+        }
+
+        .btn-primary:disabled {
+            background: #d4c8b4;
+            cursor: not-allowed;
+            color: #a8a29e;
+        }
+
+        /* ── Detail panel ── */
+        #detail-close {
+            position: absolute;
+            top: 9px;
+            right: 10px;
+            background: none;
+            border: none;
+            font-size: 17px;
+            color: #a8a29e;
+            cursor: pointer;
+            line-height: 1;
+            padding: 2px 4px;
+        }
+
+        #detail-close:hover {
+            color: #292524;
+        }
+
+        .detail-title {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+            color: #a8a29e;
+            margin-bottom: 10px;
+        }
+
+        .sl-detail .dist {
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .sl-detail .sub {
+            color: #78716c;
+            margin-bottom: 4px;
+            font-size: 12px;
+        }
+
+        .sl-detail .elev-row {
+            color: #44403c;
+            font-size: 12px;
+            margin-bottom: 3px;
+        }
+
+        .water-tag {
+            display: inline-block;
+            background: #eff6ff;
+            color: #1d4ed8;
+            border: 1px solid #bfdbfe;
+            border-radius: 3px;
+            padding: 1px 7px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-right: 5px;
+        }
+
+        .anchor-card {
+            background: rgba(255, 255, 255, 0.55);
+            border: 1px solid rgba(180, 140, 90, 0.2);
+            border-radius: 6px;
+            padding: 7px 9px;
+            margin-top: 7px;
+            font-size: 12px;
+        }
+
+        .anchor-card .ac-title {
+            font-weight: 700;
+            font-size: 12px;
+            margin-bottom: 2px;
+            color: #292524;
+        }
+
+        .anchor-card .ac-row {
+            color: #78716c;
+        }
+
+        .anchor-card a {
+            color: #b45309;
+            text-decoration: none;
+            font-size: 11px;
+        }
+
+        .anchor-card a:hover {
+            text-decoration: underline;
+        }
+
+        .copy-btn {
+            background: none;
+            border: 1px solid rgba(180, 140, 90, 0.32);
+            border-radius: 4px;
+            font-size: 10px;
+            color: #78716c;
+            cursor: pointer;
+            padding: 2px 7px;
+            flex-shrink: 0;
+            transition: border-color 0.12s, color 0.12s;
+        }
+
+        .copy-btn:hover {
+            border-color: #b45309;
+            color: #b45309;
+        }
+
+        .focus-btn {
+            background: none;
+            border: 1px solid rgba(180, 140, 90, 0.32);
+            border-radius: 5px;
+            font-size: 11px;
+            color: #78716c;
+            cursor: pointer;
+            padding: 3px 9px;
+            flex-shrink: 0;
+            white-space: nowrap;
+            transition: border-color 0.12s, color 0.12s;
+        }
+
+        .focus-btn:hover {
+            border-color: #b45309;
+            color: #b45309;
+        }
+
+        /* ── Layer panel ── */
+        #panel-layers {
+            pointer-events: all;
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        #layers-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            background: rgba(250, 246, 240, 0.93);
+            border: 1px solid rgba(180, 140, 90, 0.22);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.14);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 19px;
+            color: #78716c;
+            transition: color 0.15s;
+        }
+
+        #layers-btn:hover {
+            color: #b45309;
+        }
+
+        #layers-expanded {
+            display: none;
+            position: absolute;
+            top: 0;
+            right: 0;
+            background: rgba(250, 246, 240, 0.97);
+            border: 1px solid rgba(180, 140, 90, 0.22);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.14);
+            border-radius: 10px;
+            padding: 11px 13px;
+            min-width: 190px;
+        }
+
+        #panel-layers:hover #layers-expanded {
+            display: block;
+        }
+
+        #panel-layers:hover #layers-btn {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .layer-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin-bottom: 9px;
+        }
+
+        .layer-thumb {
+            position: relative;
+            cursor: pointer;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 2px solid transparent;
+            transition: border-color 0.15s;
+            text-align: center;
+        }
+
+        .layer-thumb.active {
+            border-color: #b45309;
+        }
+
+        .layer-thumb:hover:not(.active) {
+            border-color: rgba(180, 140, 90, 0.5);
+        }
+
+        .thumb-img {
+            height: 38px;
+            width: 100%;
+        }
+
+        .layer-thumb span {
+            display: block;
+            padding: 3px 2px;
+            font-size: 9px;
+            font-weight: 700;
+            color: #44403c;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .thumb-check {
+            position: absolute;
+            top: 3px;
+            right: 3px;
+            width: 13px;
+            height: 13px;
+            background: rgba(255, 255, 255, 0.55);
+            border: 1.5px solid rgba(100, 80, 50, 0.35);
+            border-radius: 3px;
+            font-size: 9px;
+            color: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.15s, border-color 0.15s, color 0.15s;
+            line-height: 1;
+            pointer-events: none;
+        }
+
+        .layer-thumb.active .thumb-check {
+            background: #b45309;
+            border-color: #b45309;
+            color: #fff;
+        }
+
+        .overlay-section {
+            border-top: 1px solid rgba(180, 140, 90, 0.18);
+            padding-top: 7px;
+        }
+
+        .section-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            color: #a8a29e;
+            margin-bottom: 6px;
+        }
+
+        .overlay-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            margin-bottom: 5px;
+            color: #44403c;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .overlay-row input[type=checkbox] {
+            accent-color: #b45309;
+            cursor: pointer;
+            width: 13px;
+            height: 13px;
+        }
+
+        .overlay-row.disabled {
+            opacity: 0.4;
+            cursor: default;
+            pointer-events: none;
+        }
+
+        /* Geolocate */
+        #geolocate-btn {
+            pointer-events: all;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            background: rgba(250, 246, 240, 0.93);
+            border: 1px solid rgba(180, 140, 90, 0.22);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.14);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 19px;
+            color: #78716c;
+            transition: color 0.15s;
+        }
+
+        #geolocate-btn:hover {
+            color: #b45309;
+        }
+
+        /* ── Legend internals ── */
+        #legend b {
+            font-size: 12px;
+        }
+
+        #legend-bar, #slope-bar, #elev-bar {
+            display: block;
+            width: 100%;
+            height: 10px;
+            border-radius: 3px;
+            margin: 5px 0 2px;
+        }
+
+        #legend-labels {
+            display: flex;
+            justify-content: space-between;
+            color: #78716c;
+            font-size: 12px;
+        }
+
+        .legend-water {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 7px;
+            color: #78716c;
+            font-size: 12px;
+        }
+
+        .dash-sample {
+            width: 28px;
+            height: 0;
+            border-top: 3px dashed #4a9eff;
+            display: inline-block;
+        }
+
+        /* ── Elev hover tooltip ── */
+        #elev-tip {
+            position: fixed;
+            display: none;
+            pointer-events: none;
+            z-index: 9999;
+            background: rgba(250, 246, 240, 0.97);
+            border: 1px solid rgba(180, 140, 90, 0.28);
+            border-radius: 6px;
+            padding: 4px 9px;
+            font-size: 11px;
+            color: #292524;
+            line-height: 1.5;
+            white-space: nowrap;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+
+        /* ── Tooltip ── */
+        .leaflet-tooltip.sl-tip {
+            padding: 6px 9px;
+            background: rgba(250, 246, 240, 0.97);
+            border: 1px solid rgba(180, 140, 90, 0.25);
+            border-radius: 6px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            white-space: normal;
+            max-width: 240px;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+
+        .leaflet-tooltip.sl-tip::before {
+            border-top-color: rgba(250, 246, 240, 0.97);
+        }
+
+        .tip-dist {
+            color: #292524;
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 3px;
+        }
+
+        /* Hide Leaflet's draw/edit/delete toolbar */
+        .leaflet-draw {
+            display: none !important;
+        }
+
+        /* Hide default attribution Leaflet controls that conflict */
+        .leaflet-top.leaflet-left {
+            top: 10px;
+            left: 280px;
+        }
+
+        .leaflet-top.leaflet-right {
+            top: 10px;
+            right: 60px;
+        }
+
+        .sl-chev {
+            display: inline-block;
+            transition: transform 0.15s;
+            margin-right: 4px;
+            font-style: normal
+        }
+
+        details[open] > summary .sl-chev {
+            transform: rotate(90deg)
+        }
+    </style>
 </head>
 <body>
 
 <div id="map"></div>
-<div id="progress-wrap"><div id="progress-bar"></div></div>
+<div id="progress-wrap">
+    <div id="progress-bar"></div>
+</div>
 
 <!-- ═══ LEFT COLUMN ═══ -->
 <div id="left-col">
 
-  <div id="panel-filters" class="island">
+    <div id="panel-filters" class="island">
 
-    <!-- Section 1: App brand header -->
-    <div class="panel-section">
-    <div class="app-header">
-      <svg class="app-logo" viewBox="0 0 28 22" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <!-- Left anchor pole -->
-        <circle cx="3" cy="11" r="2.5" fill="currentColor"/>
-        <!-- Right anchor pole -->
-        <circle cx="25" cy="11" r="2.5" fill="currentColor"/>
-        <!-- Catenary line -->
-        <path d="M5.5 11 C9 16.5 19 16.5 22.5 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
-        <!-- Ground lines -->
-        <line x1="1" y1="19" x2="5" y2="19" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.4"/>
-        <line x1="23" y1="19" x2="27" y2="19" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.4"/>
-        <line x1="3" y1="13.5" x2="3" y2="19" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.4"/>
-        <line x1="25" y1="13.5" x2="25" y2="19" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.4"/>
-      </svg>
-      <div class="app-name">
-        Spotlines
-        <span>Line-of-sight finder</span>
-      </div>
-    </div>
-    </div>
-
-    <!-- Section 2: Filters -->
-    <div class="panel-section">
-    <details class="section-details" open>
-      <summary>Filters</summary>
-      <div class="section-body">
-
-        <!-- Length range slider -->
-        <div class="field-row">
-          <div class="field-label">
-            Line length &nbsp;<strong id="slider-val">15 – 50 m</strong>
-          </div>
-          <div id="length-slider" style="margin: 10px 6px 6px"></div>
+        <!-- Section 1: App brand header -->
+        <div class="panel-section">
+            <div class="app-header">
+                <svg class="app-logo" viewBox="0 0 28 22" fill="none" xmlns="http://www.w3.org/2000/svg"
+                     aria-hidden="true">
+                    <!-- Left anchor pole -->
+                    <circle cx="3" cy="11" r="2.5" fill="currentColor"/>
+                    <!-- Right anchor pole -->
+                    <circle cx="25" cy="11" r="2.5" fill="currentColor"/>
+                    <!-- Catenary line -->
+                    <path d="M5.5 11 C9 16.5 19 16.5 22.5 11" stroke="currentColor" stroke-width="1.8"
+                          stroke-linecap="round" fill="none"/>
+                    <!-- Ground lines -->
+                    <line x1="1" y1="19" x2="5" y2="19" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"
+                          opacity="0.4"/>
+                    <line x1="23" y1="19" x2="27" y2="19" stroke="currentColor" stroke-width="1.4"
+                          stroke-linecap="round" opacity="0.4"/>
+                    <line x1="3" y1="13.5" x2="3" y2="19" stroke="currentColor" stroke-width="1.4"
+                          stroke-linecap="round" opacity="0.4"/>
+                    <line x1="25" y1="13.5" x2="25" y2="19" stroke="currentColor" stroke-width="1.4"
+                          stroke-linecap="round" opacity="0.4"/>
+                </svg>
+                <div class="app-name">
+                    Spotlines
+                    <span>Line-of-sight finder</span>
+                </div>
+            </div>
         </div>
 
-        <!-- Max slope + Clearance -->
-        <div class="field-row" style="display:flex;gap:14px;align-items:flex-end">
-          <div>
-            <div class="field-label">Max slope</div>
-            <div class="input-row">
-              <input type="number" id="maxSlope" class="mini-input" value="5" min="0" max="90" step="0.5">
-              <span class="input-unit">°</span>
-            </div>
-          </div>
-          <div>
-            <div class="field-label">Clearance</div>
-            <div class="input-row">
-              <input type="number" id="clearanceM" class="mini-input" value="1" min="0" max="50" step="0.5">
-              <span class="input-unit">m</span>
-            </div>
-          </div>
+        <!-- Section 2: Filters -->
+        <div class="panel-section">
+            <details class="section-details" open>
+                <summary>Filters</summary>
+                <div class="section-body">
+
+                    <!-- Length range slider -->
+                    <div class="field-row">
+                        <div class="field-label">
+                            Line length &nbsp;<strong id="slider-val">15 – 50 m</strong>
+                        </div>
+                        <div id="length-slider" style="margin: 10px 6px 6px"></div>
+                    </div>
+
+                    <!-- Max slope + Clearance -->
+                    <div class="field-row" style="display:flex;gap:14px;align-items:flex-end">
+                        <div>
+                            <div class="field-label">Max slope</div>
+                            <div class="input-row">
+                                <input type="number" id="maxSlope" class="mini-input" value="5" min="0" max="90"
+                                       step="0.5">
+                                <span class="input-unit">°</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="field-label">Clearance</div>
+                            <div class="input-row">
+                                <input type="number" id="clearanceM" class="mini-input" value="1" min="0" max="50"
+                                       step="0.5">
+                                <span class="input-unit">m</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Water -->
+                    <div class="field-row" style="margin-bottom:6px">
+                        <div class="field-label">Water crossings</div>
+                        <select id="water" class="mini-select">
+                            <option value="any">Any</option>
+                            <option value="only">Only</option>
+                            <option value="exclude">Exclude</option>
+                        </select>
+                    </div>
+
+                </div>
+            </details>
         </div>
 
-        <!-- Water -->
-        <div class="field-row" style="margin-bottom:6px">
-          <div class="field-label">Water crossings</div>
-          <select id="water" class="mini-select">
-            <option value="any">Any</option>
-            <option value="only">Only</option>
-            <option value="exclude">Exclude</option>
-          </select>
+        <!-- Section 3: Line (collapsed by default) -->
+        <div class="panel-section">
+            <details class="section-details">
+                <summary>Line<span id="line-hint" class="section-hint"></span></summary>
+                <div class="section-body">
+
+                    <!-- Line type -->
+                    <div class="field-row" style="margin-bottom:8px">
+                        <div class="field-label">Type</div>
+                        <select id="linePreset" class="mini-select" onchange="onLinePresetChange()">
+                            <option value="tubular25">Tubular 25 mm</option>
+                            <option value="dyneema1">Dyneema 1"</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                    </div>
+
+                    <!-- Custom line params (shown when custom is selected) -->
+                    <div id="line-custom" style="display:none;margin-bottom:12px">
+                        <div style="display:flex;gap:14px;align-items:flex-end">
+                            <div>
+                                <div class="field-label">EA</div>
+                                <div class="input-row">
+                                    <input type="number" id="lineEA" class="mini-input" value="150000" min="1000"
+                                           step="5000">
+                                    <span class="input-unit">N</span>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="field-label">w</div>
+                                <div class="input-row">
+                                    <input type="number" id="lineW" class="mini-input" value="0.70" min="0.01"
+                                           step="0.01">
+                                    <span class="input-unit">N/m</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Pre-tension + Walker -->
+                    <div style="display:flex;gap:14px;align-items:flex-end;margin-bottom:6px">
+                        <div>
+                            <div class="field-label">Pre-tension</div>
+                            <div class="input-row">
+                                <input type="number" id="preTension" class="mini-input" value="2000" min="100"
+                                       step="100">
+                                <span class="input-unit">N</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="field-label">Walker</div>
+                            <div class="input-row">
+                                <input type="number" id="walkerKg" class="mini-input" value="80" min="20" max="300"
+                                       step="5">
+                                <span class="input-unit">kg</span>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </details>
         </div>
 
-      </div>
-    </details>
-    </div>
+        <!-- Section 4: Buttons + status -->
+        <div class="panel-section">
+            <div class="btn-row">
+                <button id="selectAreaBtn" class="btn-secondary" onclick="toggleSelectArea()">Select area</button>
+                <button id="searchBtn" class="btn-primary" onclick="doSearch()" disabled>Search</button>
+            </div>
 
-    <!-- Section 3: Line (collapsed by default) -->
-    <div class="panel-section">
-    <details class="section-details">
-      <summary>Line<span id="line-hint" class="section-hint"></span></summary>
-      <div class="section-body">
-
-        <!-- Line type -->
-        <div class="field-row" style="margin-bottom:8px">
-          <div class="field-label">Type</div>
-          <select id="linePreset" class="mini-select" onchange="onLinePresetChange()">
-            <option value="tubular25">Tubular 25 mm</option>
-            <option value="dyneema1">Dyneema 1"</option>
-            <option value="custom">Custom</option>
-          </select>
+            <div id="status" data-state="idle">Draw a rectangle to begin</div>
         </div>
+    </div>
 
-        <!-- Custom line params (shown when custom is selected) -->
-        <div id="line-custom" style="display:none;margin-bottom:12px">
-          <div style="display:flex;gap:14px;align-items:flex-end">
-            <div>
-              <div class="field-label">EA</div>
-              <div class="input-row">
-                <input type="number" id="lineEA" class="mini-input" value="150000" min="1000" step="5000">
-                <span class="input-unit">N</span>
-              </div>
-            </div>
-            <div>
-              <div class="field-label">w</div>
-              <div class="input-row">
-                <input type="number" id="lineW" class="mini-input" value="0.70" min="0.01" step="0.01">
-                <span class="input-unit">N/m</span>
-              </div>
-            </div>
-          </div>
+    <!-- Line detail (hidden until click) -->
+    <div id="panel-detail" class="island">
+        <button id="detail-close" onclick="closeDetail()">×</button>
+        <div class="detail-title">Line detail</div>
+        <div id="detail-content"></div>
+    </div>
+
+    <!-- Legend -->
+    <div id="legend" class="island" style="flex-shrink:0">
+        <b>Distance (m)</b>
+        <canvas id="legend-bar" height="10"></canvas>
+        <div id="legend-labels">
+            <span id="leg-min"></span><span id="leg-max"></span>
         </div>
-
-        <!-- Pre-tension + Walker -->
-        <div style="display:flex;gap:14px;align-items:flex-end;margin-bottom:6px">
-          <div>
-            <div class="field-label">Pre-tension</div>
-            <div class="input-row">
-              <input type="number" id="preTension" class="mini-input" value="2000" min="100" step="100">
-              <span class="input-unit">N</span>
-            </div>
-          </div>
-          <div>
-            <div class="field-label">Walker</div>
-            <div class="input-row">
-              <input type="number" id="walkerKg" class="mini-input" value="80" min="20" max="300" step="5">
-              <span class="input-unit">kg</span>
-            </div>
-          </div>
+        <div class="legend-water">
+            <span class="dash-sample"></span> Water crossing
         </div>
-
-      </div>
-    </details>
+        <div id="slope-legend"
+             style="display:none;margin-top:8px;border-top:1px solid rgba(180,140,90,0.18);padding-top:7px">
+            <b>Slope</b>
+            <canvas id="slope-bar" height="10"></canvas>
+            <div style="display:flex;justify-content:space-between;color:#78716c;font-size:12px">
+                <span id="slope-leg-min">0°</span><span id="slope-leg-max">45°</span>
+            </div>
+        </div>
+        <div id="elev-legend"
+             style="display:none;margin-top:8px;border-top:1px solid rgba(180,140,90,0.18);padding-top:7px">
+            <b>Elevation (m)</b>
+            <canvas id="elev-bar" height="10"></canvas>
+            <div style="display:flex;justify-content:space-between;color:#78716c;font-size:12px">
+                <span id="elev-leg-min">—</span><span id="elev-leg-max">—</span>
+            </div>
+        </div>
     </div>
-
-    <!-- Section 4: Buttons + status -->
-    <div class="panel-section">
-    <div class="btn-row">
-      <button id="selectAreaBtn" class="btn-secondary" onclick="toggleSelectArea()">Select area</button>
-      <button id="searchBtn" class="btn-primary" onclick="doSearch()" disabled>Search</button>
-    </div>
-
-    <div id="status" data-state="idle">Draw a rectangle to begin</div>
-    </div>
-  </div>
-
-  <!-- Line detail (hidden until click) -->
-  <div id="panel-detail" class="island">
-    <button id="detail-close" onclick="closeDetail()">×</button>
-    <div class="detail-title">Line detail</div>
-    <div id="detail-content"></div>
-  </div>
-
-  <!-- Legend -->
-  <div id="legend" class="island" style="flex-shrink:0">
-    <b>Distance (m)</b>
-    <canvas id="legend-bar" height="10"></canvas>
-    <div id="legend-labels">
-      <span id="leg-min"></span><span id="leg-max"></span>
-    </div>
-    <div class="legend-water">
-      <span class="dash-sample"></span> Water crossing
-    </div>
-    <div id="slope-legend" style="display:none;margin-top:8px;border-top:1px solid rgba(180,140,90,0.18);padding-top:7px">
-      <b>Slope</b>
-      <canvas id="slope-bar" height="10"></canvas>
-      <div style="display:flex;justify-content:space-between;color:#78716c;font-size:12px">
-        <span id="slope-leg-min">0°</span><span id="slope-leg-max">45°</span>
-      </div>
-    </div>
-    <div id="elev-legend" style="display:none;margin-top:8px;border-top:1px solid rgba(180,140,90,0.18);padding-top:7px">
-      <b>Elevation (m)</b>
-      <canvas id="elev-bar" height="10"></canvas>
-      <div style="display:flex;justify-content:space-between;color:#78716c;font-size:12px">
-        <span id="elev-leg-min">—</span><span id="elev-leg-max">—</span>
-      </div>
-    </div>
-  </div>
 
 </div>
 
 <!-- ═══ RIGHT COLUMN ═══ -->
 <div id="right-col">
 
-  <!-- Layer switcher -->
-  <div id="panel-layers">
-    <button id="layers-btn" title="Layers">⊞</button>
-    <div id="layers-expanded">
-      <div class="panel-title" style="margin-bottom:9px">Base layer</div>
-      <div class="layer-grid" id="layer-grid"></div>
-      <div class="overlay-section">
-        <div class="section-label">Overlays</div>
-        <div class="layer-grid">
-          <div class="layer-thumb" id="ov-slope-thumb" onclick="toggleOverlay('slope')">
-            <div class="thumb-img" style="background:linear-gradient(to right,#ffff72,#fd8d3c,#bd0026)"></div>
-            <span>Slope</span>
-            <div class="thumb-check">✓</div>
-          </div>
-          <div class="layer-thumb" id="ov-elev-thumb" onclick="toggleOverlay('elev')">
-            <div class="thumb-img" style="background:linear-gradient(to right,#256670,#427849,#aab55d,#bfa564,#fdface)"></div>
-            <span>Elevation</span>
-            <div class="thumb-check">✓</div>
-          </div>
-          <div class="layer-thumb" id="ov-contour-thumb" onclick="toggleOverlay('contour')">
-            <div class="thumb-img" style="background:#d4b896"></div>
-            <span>Contours</span>
-            <div class="thumb-check">✓</div>
-          </div>
-          <div class="layer-thumb" id="ov-hillshade-thumb" onclick="toggleOverlay('hillshade')">
-            <div class="thumb-img" style="background:linear-gradient(135deg,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.1) 55%,rgba(0,0,0,0) 100%),#c8bfb0"></div>
-            <span>Hillshade</span>
-            <div class="thumb-check">✓</div>
-          </div>
-          <div class="layer-thumb" id="ov-names-thumb" onclick="toggleOverlay('names')">
-            <div class="thumb-img" style="background:#eae6e0"></div>
-            <span>Names</span>
-            <div class="thumb-check">✓</div>
-          </div>
-          <div class="layer-thumb" id="ov-landuse-thumb" onclick="toggleOverlay('landuse')">
-            <div class="thumb-img" style="background:linear-gradient(135deg,#3a8f4c 0%,#c8b820 40%,#c0522a 70%,#3a73c0 100%)"></div>
-            <span>Land use</span>
-            <div class="thumb-check">✓</div>
-          </div>
+    <!-- Layer switcher -->
+    <div id="panel-layers">
+        <button id="layers-btn" title="Layers">⊞</button>
+        <div id="layers-expanded">
+            <div class="panel-title" style="margin-bottom:9px">Base layer</div>
+            <div class="layer-grid" id="layer-grid"></div>
+            <div class="overlay-section">
+                <div class="section-label">Overlays</div>
+                <div class="layer-grid">
+                    <div class="layer-thumb" id="ov-slope-thumb" onclick="toggleOverlay('slope')">
+                        <div class="thumb-img"
+                             style="background:linear-gradient(to right,#ffff72,#fd8d3c,#bd0026)"></div>
+                        <span>Slope</span>
+                        <div class="thumb-check">✓</div>
+                    </div>
+                    <div class="layer-thumb" id="ov-elev-thumb" onclick="toggleOverlay('elev')">
+                        <div class="thumb-img"
+                             style="background:linear-gradient(to right,#256670,#427849,#aab55d,#bfa564,#fdface)"></div>
+                        <span>Elevation</span>
+                        <div class="thumb-check">✓</div>
+                    </div>
+                    <div class="layer-thumb" id="ov-contour-thumb" onclick="toggleOverlay('contour')">
+                        <div class="thumb-img" style="background:#d4b896"></div>
+                        <span>Contours</span>
+                        <div class="thumb-check">✓</div>
+                    </div>
+                    <div class="layer-thumb" id="ov-hillshade-thumb" onclick="toggleOverlay('hillshade')">
+                        <div class="thumb-img"
+                             style="background:linear-gradient(135deg,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.1) 55%,rgba(0,0,0,0) 100%),#c8bfb0"></div>
+                        <span>Hillshade</span>
+                        <div class="thumb-check">✓</div>
+                    </div>
+                    <div class="layer-thumb" id="ov-names-thumb" onclick="toggleOverlay('names')">
+                        <div class="thumb-img" style="background:#eae6e0"></div>
+                        <span>Names</span>
+                        <div class="thumb-check">✓</div>
+                    </div>
+                    <div class="layer-thumb" id="ov-landuse-thumb" onclick="toggleOverlay('landuse')">
+                        <div class="thumb-img"
+                             style="background:linear-gradient(135deg,#3a8f4c 0%,#c8b820 40%,#c0522a 70%,#3a73c0 100%)"></div>
+                        <span>Land use</span>
+                        <div class="thumb-check">✓</div>
+                    </div>
+                </div>
+            </div>
         </div>
-      </div>
     </div>
-  </div>
 
-  <!-- Geolocate -->
-  <button id="geolocate-btn" title="Go to my location" onclick="geolocate()">⊕</button>
+    <!-- Geolocate -->
+    <button id="geolocate-btn" title="Go to my location" onclick="geolocate()">⊕</button>
 
 
 </div>
@@ -594,985 +1123,1090 @@
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
 <script>
-// ── Feature metadata (loaded from backend) ───────────────────────────────────
-let _landuseTypes = {};
-fetch('/landuse/types').then(r => r.json()).then(d => { _landuseTypes = d; }).catch(() => {});
-let _overpasFeatures = {};
-fetch('/overpass/features').then(r => r.json()).then(d => { _overpasFeatures = d; }).catch(() => {});
+    // ── Feature metadata (loaded from backend) ───────────────────────────────────
+    let _landuseTypes = {};
+    fetch('/landuse/types').then(r => r.json()).then(d => {
+        _landuseTypes = d;
+    }).catch(() => {
+    });
+    let _overpasFeatures = {};
+    fetch('/overpass/features').then(r => r.json()).then(d => {
+        _overpasFeatures = d;
+    }).catch(() => {
+    });
 
-// ── Constants ────────────────────────────────────────────────────────────────
-const MAX_SLOPE_DEG  = 45;      // slope colour scale ceiling (matches backend)
-const GRAVITY        = 9.81;    // m/s²
-const NR_MAX_ITERS   = 60;      // Newton-Raphson iteration limit
-const NR_EPSILON     = 1e-7;    // Newton-Raphson convergence threshold
-const WALKER_CLAMP   = [0.02, 0.98];  // fraction range for walker along line
-const SMOOTH_KERNEL  = [0.15, 0.70, 0.15];  // elevation profile smoothing weights
-const WALKER_SAMPLES = 21;      // catenary sample points (20 intervals)
-const LINE_PRESETS = {
-  tubular25: { EA: 150_000,   w: 0.70 },
-  dyneema1:  { EA: 1_500_000, w: 0.07 },
-};
+    // ── Constants ────────────────────────────────────────────────────────────────
+    const MAX_SLOPE_DEG = 45;      // slope colour scale ceiling (matches backend)
+    const GRAVITY = 9.81;    // m/s²
+    const NR_MAX_ITERS = 60;      // Newton-Raphson iteration limit
+    const NR_EPSILON = 1e-7;    // Newton-Raphson convergence threshold
+    const WALKER_CLAMP = [0.02, 0.98];  // fraction range for walker along line
+    const SMOOTH_KERNEL = [0.15, 0.70, 0.15];  // elevation profile smoothing weights
+    const WALKER_SAMPLES = 21;      // points sampled along the solved catenary curve (post-solve, not per NR iteration)
+    const LINE_PRESETS = {
+        tubular25: {EA: 150_000, w: 0.70},
+        dyneema1: {EA: 1_500_000, w: 0.07},
+    };
 
-// ── Colormaps ────────────────────────────────────────────────────────────────
-// Cyan → blue → violet → magenta
-const PLASMA = [
-  [0.00, [  0, 220, 240]],
-  [0.33, [  0, 100, 255]],
-  [0.67, [130,   0, 255]],
-  [1.00, [255,   0, 180]],
-];
-const JET = [ // YlOrRd: yellow (flat) → red (steep)
-  [0.000, [255, 255, 178]],
-  [0.250, [254, 204,  92]],
-  [0.500, [253, 141,  60]],
-  [0.750, [240,  59,  32]],
-  [1.000, [189,   0,  38]],
-];
-function _interp(cmap, t) {
-  t = Math.max(0, Math.min(1, t));
-  let i = 0;
-  while (i < cmap.length - 2 && t >= cmap[i + 1][0]) i++;
-  const [t0, c0] = cmap[i];
-  const [t1, c1] = cmap[Math.min(i + 1, cmap.length - 1)];
-  const f = t1 > t0 ? (t - t0) / (t1 - t0) : 0;
-  const ch = v => Math.round(v).toString(16).padStart(2, '0');
-  return '#' + [0, 1, 2].map(k => ch(c0[k] + f * (c1[k] - c0[k]))).join('');
-}
-// gist_earth (land portion, t=0.22→1.0) — deep green valleys → olive → sandy tan → near-white peaks
-const TERRAIN = [
-  [0.00, [ 37, 102, 124]],
-  [0.14, [ 53, 134, 112]],
-  [0.28, [ 66, 151,  78]],
-  [0.42, [120, 166,  82]],
-  [0.57, [169, 179,  91]],
-  [0.71, [191, 165, 100]],
-  [0.85, [220, 185, 164]],
-  [1.00, [253, 250, 250]],
-];
-const cmapColor   = t => _interp(PLASMA, t);
-const slopeColor  = t => _interp(JET, t);
-const terrainColor = t => _interp(TERRAIN, t);
+    // ── Colormaps ────────────────────────────────────────────────────────────────
+    // Cyan → blue → violet → magenta
+    const PLASMA = [
+        [0.00, [0, 220, 240]],
+        [0.33, [0, 100, 255]],
+        [0.67, [130, 0, 255]],
+        [1.00, [255, 0, 180]],
+    ];
+    const JET = [ // YlOrRd: yellow (flat) → red (steep)
+        [0.000, [255, 255, 178]],
+        [0.250, [254, 204, 92]],
+        [0.500, [253, 141, 60]],
+        [0.750, [240, 59, 32]],
+        [1.000, [189, 0, 38]],
+    ];
 
-// ── Map setup ────────────────────────────────────────────────────────────────
-const TRENTO = [46.0667, 11.1167];
-const map = L.map('map', { center: TRENTO, zoom: 14, zoomControl: false });
-
-// Zoom control at bottom-right corner (above legend area)
-L.control.zoom({ position: 'bottomright' }).addTo(map);
-
-map.createPane('labelsPane');
-map.getPane('labelsPane').style.zIndex = 450;
-map.getPane('labelsPane').style.pointerEvents = 'none';
-
-map.createPane('blankPane');
-map.getPane('blankPane').style.zIndex = 399;
-map.getPane('blankPane').style.pointerEvents = 'none';
-
-map.createPane('terrainPane');
-map.getPane('terrainPane').style.zIndex = 400;
-map.getPane('terrainPane').style.pointerEvents = 'none';
-
-map.createPane('landusePane');
-map.getPane('landusePane').style.zIndex = 401;
-map.getPane('landusePane').style.pointerEvents = 'none';
-
-map.createPane('contourPane');
-map.getPane('contourPane').style.zIndex = 402;
-map.getPane('contourPane').style.pointerEvents = 'none';
-
-map.createPane('linesPane');
-map.getPane('linesPane').style.zIndex = 404;
-
-map.createPane('selectedPane');
-map.getPane('selectedPane').style.zIndex = 405;
-
-map.createPane('markerPane');
-map.getPane('markerPane').style.zIndex = 500;
-map.getPane('markerPane').style.pointerEvents = 'none';
-
-// Base layers
-const LAYERS = {
-  osm: {
-    label: 'OSM',
-    color: '#b5c99a',
-    layer: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>', maxZoom: 19,
-    }),
-  },
-  sat: {
-    label: 'Satellite',
-    color: '#1a2535',
-    layer: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      { attribution: 'Tiles &copy; Esri', maxZoom: 19 }),
-  },
-  topo: {
-    label: 'Topo',
-    color: '#c4b49a',
-    layer: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a>', maxZoom: 17,
-    }),
-  },
-};
-
-const labelsLayer = L.tileLayer(
-  'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',
-  { attribution: '&copy; CARTO', maxZoom: 19, pane: 'labelsPane' }
-);
-
-let _activeBaseKey = 'osm';
-LAYERS.osm.layer.addTo(map);
-
-// Build layer thumbnail grid
-const layerGrid = document.getElementById('layer-grid');
-Object.entries(LAYERS).forEach(([key, cfg]) => {
-  const el = document.createElement('div');
-  el.className = 'layer-thumb' + (key === 'osm' ? ' active' : '');
-  el.dataset.key = key;
-  el.innerHTML = `<div class="thumb-img" style="background:${cfg.color}"></div><span>${cfg.label}</span><div class="thumb-check">✓</div>`;
-  el.addEventListener('click', () => toggleBase(key));
-  layerGrid.appendChild(el);
-});
-const blankThumb = document.createElement('div');
-blankThumb.className = 'layer-thumb';
-blankThumb.id = 'base-blank-thumb';
-blankThumb.dataset.key = 'blank';
-blankThumb.innerHTML = `<div class="thumb-img" style="background:repeating-conic-gradient(#ddd8d0 0% 25%,#f5f1ec 0% 50%) 0 0/8px 8px"></div><span>None</span><div class="thumb-check">✓</div>`;
-blankThumb.addEventListener('click', () => toggleBase('blank'));
-layerGrid.appendChild(blankThumb);
-
-function _setHeatmapOpacity(full) {
-  if (terrainLayer) terrainLayer.setOpacity(OV_STATE.elev && !full ? 0.6 : 1.0);
-}
-
-let _blankOn = false;
-let _blankRect = null;
-function _addBlankRect() {
-  _removeBlankRect();
-  if (!_currentBbox) return;
-  _blankRect = L.rectangle(
-    [[_currentBbox.south, _currentBbox.west], [_currentBbox.north, _currentBbox.east]],
-    { stroke: false, fillColor: '#ffffff', fillOpacity: 1.0, pane: 'blankPane', interactive: false }
-  ).addTo(map);
-}
-function _removeBlankRect() {
-  if (_blankRect) { map.removeLayer(_blankRect); _blankRect = null; }
-}
-
-function toggleBase(key) {
-  if (key === 'blank') {
-    _blankOn = !_blankOn;
-    document.getElementById('base-blank-thumb').classList.toggle('active', _blankOn);
-    if (_blankOn) _addBlankRect(); else _removeBlankRect();
-    _setHeatmapOpacity(_blankOn);
-    return;
-  }
-  const thumbs = document.querySelectorAll('.layer-thumb[data-key]:not([data-key="blank"])');
-  if (key === _activeBaseKey) {
-    map.removeLayer(LAYERS[key].layer);
-    _activeBaseKey = null;
-    thumbs.forEach(el => el.classList.remove('active'));
-    return;
-  }
-  if (_activeBaseKey) map.removeLayer(LAYERS[_activeBaseKey].layer);
-  LAYERS[key].layer.addTo(map);
-  _activeBaseKey = key;
-  thumbs.forEach(el => el.classList.toggle('active', el.dataset.key === key));
-}
-
-// ── Terrain / contour overlays ───────────────────────────────────────────────
-let terrainLayer = null;
-let _terrainBbox = null;
-let _slopeStats = { min: 0, max: 45 };
-let contourLayer = null;
-let _contourSvgEl = null;
-let _elevStats = { min: 0, max: 0 };
-
-// Overlay toggle state
-const OV_STATE = { slope: false, elev: false, contour: false, hillshade: false, names: false, landuse: false };
-
-// Landuse: direct WMS tile layer — combined (satellite fills OSM gaps) with
-// the original OSM layer rendered on top so tagged data always takes priority.
-const landuseLayer = L.tileLayer.wms('https://maps.heigit.org/osmlanduse/wms', {
-  layers: 'osmlanduse:osm_lulc_combined_osm4eo,osmlanduse:osm_lulc',
-  styles: '',
-  format: 'image/png',
-  transparent: true,
-  version: '1.1.1',
-  opacity: 0.65,
-  pane: 'landusePane',
-  attribution: 'Land use &copy; <a href="https://osmlanduse.org" target="_blank">osmlanduse.org</a> / HeiGIT',
-});
-
-function toggleOverlay(key) {
-  const on = !OV_STATE[key];
-  OV_STATE[key] = on;
-  document.getElementById(`ov-${key}-thumb`).classList.toggle('active', on);
-  if (key === 'slope') {
-    _drawnItems.setStyle({ fillOpacity: on ? 0 : 0.2 });
-    showSlopeLegend(on);
-    _rebuildTerrainLayer();
-  } else if (key === 'elev') {
-    showElevLegend(on);
-    _rebuildTerrainLayer();
-  } else if (key === 'hillshade') {
-    _rebuildTerrainLayer();
-  } else if (key === 'contour') {
-    if (!contourLayer) return;
-    if (on) contourLayer.addTo(map); else map.removeLayer(contourLayer);
-  } else if (key === 'names') {
-    if (on) labelsLayer.addTo(map); else map.removeLayer(labelsLayer);
-  } else if (key === 'landuse') {
-    if (on) landuseLayer.addTo(map); else map.removeLayer(landuseLayer);
-  }
-}
-
-function _setOverlayActive(key, on) {
-  OV_STATE[key] = on;
-  document.getElementById(`ov-${key}-thumb`).classList.toggle('active', on);
-}
-
-
-function updateLanduseLayer(_bbox) {
-  // WMS tile layer covers the whole map — no per-bbox refresh needed.
-  // Restore visibility if it was on before the search.
-  if (OV_STATE.landuse && !map.hasLayer(landuseLayer)) {
-    landuseLayer.addTo(map);
-  }
-}
-
-async function updateContourLayer(bbox) {
-  const wasOn = (contourLayer && map.hasLayer(contourLayer)) || OV_STATE.contour;
-  if (contourLayer) { map.removeLayer(contourLayer); contourLayer = null; }
-  _contourSvgEl = null;
-  try {
-    const qs = new URLSearchParams({ south: bbox.south, west: bbox.west, north: bbox.north, east: bbox.east });
-    const res = await fetch('/slope/contours?' + qs);
-    if (!res.ok) return;
-    const svgText = await res.text();
-    _contourSvgEl = new DOMParser().parseFromString(svgText, 'image/svg+xml').documentElement;
-    contourLayer = L.svgOverlay(_contourSvgEl, [[bbox.south, bbox.west], [bbox.north, bbox.east]], { interactive: false, pane: 'contourPane' });
-    if (wasOn || OV_STATE.contour) { contourLayer.addTo(map); _setOverlayActive('contour', true); }
-  } catch {}
-}
-
-function _rebuildTerrainLayer() {
-  if (terrainLayer) { map.removeLayer(terrainLayer); terrainLayer = null; }
-  if (!_terrainBbox) return;
-  const { south, west, north, east } = _terrainBbox;
-  const anyOn = OV_STATE.slope || OV_STATE.elev || OV_STATE.hillshade;
-  if (!anyOn) return;
-  const qs = new URLSearchParams({
-    south, west, north, east,
-    slope: OV_STATE.slope ? 1 : 0,
-    elev: OV_STATE.elev ? 1 : 0,
-    hillshade: OV_STATE.hillshade ? 1 : 0,
-  });
-  const opacity = OV_STATE.elev && !_blankOn ? 0.6 : 1.0;
-  terrainLayer = L.imageOverlay(`/terrain/image?${qs}`, [[south, west], [north, east]], {
-    opacity, pane: 'terrainPane',
-    attribution: 'Terrain &copy; Copernicus GLO-30 / TINItaly INGV',
-  });
-  terrainLayer.addTo(map);
-}
-
-async function updateTerrainLayer(bbox) {
-  _terrainBbox = bbox;
-  _rebuildTerrainLayer();
-  const qs = new URLSearchParams({ south: bbox.south, west: bbox.west, north: bbox.north, east: bbox.east });
-  try {
-    const res = await fetch('/slope/stats?' + qs);
-    if (res.ok) {
-      const { min_deg, max_deg } = await res.json();
-      _slopeStats = { min: min_deg, max: max_deg };
-      showSlopeLegend(OV_STATE.slope);
-    }
-  } catch {}
-  try {
-    const res = await fetch('/elevation/stats?' + qs);
-    if (res.ok) {
-      const { min_m, max_m } = await res.json();
-      _elevStats = { min: min_m, max: max_m };
-      showElevLegend(OV_STATE.elev);
-    }
-  } catch {}
-}
-
-function showElevLegend(visible) {
-  document.getElementById('elev-legend').style.display = visible ? 'block' : 'none';
-  if (!visible) return;
-  const { min, max } = _elevStats;
-  _fillBar('elev-bar', t => terrainColor(t));
-  document.getElementById('elev-leg-min').textContent = min + ' m';
-  document.getElementById('elev-leg-max').textContent = max + ' m';
-}
-
-// ── Geolocation ──────────────────────────────────────────────────────────────
-function geolocate() {
-  if (!navigator.geolocation) return;
-  const btn = document.getElementById('geolocate-btn');
-  btn.style.opacity = '0.5';
-  navigator.geolocation.getCurrentPosition(
-    pos => { map.setView([pos.coords.latitude, pos.coords.longitude], 15); btn.style.opacity = '1'; },
-    ()  => { btn.style.opacity = '1'; },
-    { timeout: 8000 }
-  );
-}
-
-// ── noUiSlider ───────────────────────────────────────────────────────────────
-const sliderEl = document.getElementById('length-slider');
-noUiSlider.create(sliderEl, {
-  start: [15, 50],
-  connect: true,
-  range: { min: [1], '20%': [10, 1], '45%': [50, 5], '70%': [200, 10], '85%': [500, 25], max: [4000] },
-  tooltips: false,
-});
-sliderEl.noUiSlider.on('update', (vals) => {
-  document.getElementById('slider-val').textContent = `${Math.round(vals[0])} – ${Math.round(vals[1])} m`;
-});
-
-// ── Draw rectangle ───────────────────────────────────────────────────────────
-const _drawnItems = new L.FeatureGroup().addTo(map);
-
-// Include Draw control for event system only (toolbar hidden via CSS)
-map.addControl(new L.Control.Draw({
-  draw: { rectangle: { shapeOptions: { color: '#b45309', weight: 2 } }, polyline: false, polygon: false, circle: false, circlemarker: false, marker: false },
-  edit: false,
-}));
-
-let _drawHandler = null;
-
-function toggleSelectArea() {
-  const btn = document.getElementById('selectAreaBtn');
-  if (_drawHandler) {
-    _drawHandler.disable();
-    _drawHandler = null;
-    btn.classList.remove('active');
-    return;
-  }
-  _drawHandler = new L.Draw.Rectangle(map, { shapeOptions: { color: '#b45309', weight: 2, fillOpacity: 0.08 } });
-  _drawHandler.enable();
-  btn.classList.add('active');
-}
-
-let _currentBbox = null;
-
-map.on(L.Draw.Event.CREATED, e => {
-  _drawnItems.clearLayers();
-  _drawnItems.addLayer(e.layer);
-  const b = e.layer.getBounds();
-  _currentBbox = { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() };
-  if (_blankOn) _addBlankRect();
-  _drawHandler = null;
-  document.getElementById('selectAreaBtn').classList.remove('active');
-  document.getElementById('searchBtn').disabled = false;
-  setStatus('Area selected — click Search');
-});
-
-// ── Search ───────────────────────────────────────────────────────────────────
-const _resultsLayer = L.layerGroup([], { pane: 'linesPane' }).addTo(map);
-
-async function doSearch() {
-  if (!_currentBbox) { setStatus('Draw an area first'); return; }
-
-  const vals      = sliderEl.noUiSlider.get();
-  const minM      = parseFloat(vals[0]);
-  const maxM      = parseFloat(vals[1]);
-  const water     = document.getElementById('water').value;
-  const maxSlope  = parseFloat(document.getElementById('maxSlope').value);
-  const clearanceM = parseFloat(document.getElementById('clearanceM').value) || 0;
-
-  if (minM >= maxM) { setStatus('Min must be less than max'); return; }
-
-  const { south, west, north, east } = _currentBbox;
-  if (Math.abs(north - south) > 0.1 || Math.abs(east - west) > 0.1) {
-    setStatus('Area too large — max 0.1° per side'); return;
-  }
-
-  setLoading(true);
-  closeDetail();
-  _resultsLayer.clearLayers();
-
-  try {
-    const qs = new URLSearchParams({ south, west, north, east, min_m: minM, max_m: maxM, water, max_slope: maxSlope, clearance_m: clearanceM });
-    const resp = await fetch('/spots?' + qs);
-    if (!resp.ok) {
-      const body = await resp.json().catch(() => ({}));
-      throw new Error(body.detail || `HTTP ${resp.status}`);
+    function _interp(cmap, t) {
+        t = Math.max(0, Math.min(1, t));
+        let i = 0;
+        while (i < cmap.length - 2 && t >= cmap[i + 1][0]) i++;
+        const [t0, c0] = cmap[i];
+        const [t1, c1] = cmap[Math.min(i + 1, cmap.length - 1)];
+        const f = t1 > t0 ? (t - t0) / (t1 - t0) : 0;
+        const ch = v => Math.round(v).toString(16).padStart(2, '0');
+        return '#' + [0, 1, 2].map(k => ch(c0[k] + f * (c1[k] - c0[k]))).join('');
     }
 
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
+    // gist_earth (land portion, t=0.22→1.0) — deep green valleys → olive → sandy tan → near-white peaks
+    const TERRAIN = [
+        [0.00, [37, 102, 124]],
+        [0.14, [53, 134, 112]],
+        [0.28, [66, 151, 78]],
+        [0.42, [120, 166, 82]],
+        [0.57, [169, 179, 91]],
+        [0.71, [191, 165, 100]],
+        [0.85, [220, 185, 164]],
+        [1.00, [253, 250, 250]],
+    ];
+    const cmapColor = t => _interp(PLASMA, t);
+    const slopeColor = t => _interp(JET, t);
+    const terrainColor = t => _interp(TERRAIN, t);
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const parts = buf.split('\n\n');
-      buf = parts.pop();
-      for (const part of parts) {
-        const line = part.trim();
-        if (!line.startsWith('data: ')) continue;
-        let msg;
-        try { msg = JSON.parse(line.slice(6)); } catch { continue; }
-        if (msg.error) throw new Error(msg.error);
-        if (msg.status) setStatus(msg.status);
-        if (msg.pct != null) setProgress(msg.pct);
-        if (msg.result) {
-          const geojson = msg.result;
-          const { realMin, realMax } = renderResults(geojson, minM, maxM);
-          const n = geojson.features.length;
-          setStatus(`${n} pair${n !== 1 ? 's' : ''} found`);
-          drawLegend(realMin, realMax);
-          showSlopeLegend(OV_STATE.slope);
-          updateTerrainLayer(_currentBbox);
-          updateContourLayer(_currentBbox);
-          updateLanduseLayer(_currentBbox);
+    // ── Map setup ────────────────────────────────────────────────────────────────
+    const TRENTO = [46.0667, 11.1167];
+    const map = L.map('map', {center: TRENTO, zoom: 14, zoomControl: false});
+
+    // Zoom control at bottom-right corner (above legend area)
+    L.control.zoom({position: 'bottomright'}).addTo(map);
+
+    map.createPane('labelsPane');
+    map.getPane('labelsPane').style.zIndex = 450;
+    map.getPane('labelsPane').style.pointerEvents = 'none';
+
+    map.createPane('blankPane');
+    map.getPane('blankPane').style.zIndex = 399;
+    map.getPane('blankPane').style.pointerEvents = 'none';
+
+    map.createPane('terrainPane');
+    map.getPane('terrainPane').style.zIndex = 400;
+    map.getPane('terrainPane').style.pointerEvents = 'none';
+
+    map.createPane('landusePane');
+    map.getPane('landusePane').style.zIndex = 401;
+    map.getPane('landusePane').style.pointerEvents = 'none';
+
+    map.createPane('contourPane');
+    map.getPane('contourPane').style.zIndex = 402;
+    map.getPane('contourPane').style.pointerEvents = 'none';
+
+    map.createPane('linesPane');
+    map.getPane('linesPane').style.zIndex = 404;
+
+    map.createPane('selectedPane');
+    map.getPane('selectedPane').style.zIndex = 405;
+
+    map.createPane('markerPane');
+    map.getPane('markerPane').style.zIndex = 500;
+    map.getPane('markerPane').style.pointerEvents = 'none';
+
+    // Base layers
+    const LAYERS = {
+        osm: {
+            label: 'OSM',
+            color: '#b5c99a',
+            layer: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>', maxZoom: 19,
+            }),
+        },
+        sat: {
+            label: 'Satellite',
+            color: '#1a2535',
+            layer: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                {attribution: 'Tiles &copy; Esri', maxZoom: 19}),
+        },
+        topo: {
+            label: 'Topo',
+            color: '#c4b49a',
+            layer: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a>', maxZoom: 17,
+            }),
+        },
+    };
+
+    const labelsLayer = L.tileLayer(
+        'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',
+        {attribution: '&copy; CARTO', maxZoom: 19, pane: 'labelsPane'}
+    );
+
+    let _activeBaseKey = 'osm';
+    LAYERS.osm.layer.addTo(map);
+
+    // Build layer thumbnail grid
+    const layerGrid = document.getElementById('layer-grid');
+    Object.entries(LAYERS).forEach(([key, cfg]) => {
+        const el = document.createElement('div');
+        el.className = 'layer-thumb' + (key === 'osm' ? ' active' : '');
+        el.dataset.key = key;
+        el.innerHTML = `<div class="thumb-img" style="background:${cfg.color}"></div><span>${cfg.label}</span><div class="thumb-check">✓</div>`;
+        el.addEventListener('click', () => toggleBase(key));
+        layerGrid.appendChild(el);
+    });
+    const blankThumb = document.createElement('div');
+    blankThumb.className = 'layer-thumb';
+    blankThumb.id = 'base-blank-thumb';
+    blankThumb.dataset.key = 'blank';
+    blankThumb.innerHTML = `<div class="thumb-img" style="background:repeating-conic-gradient(#ddd8d0 0% 25%,#f5f1ec 0% 50%) 0 0/8px 8px"></div><span>None</span><div class="thumb-check">✓</div>`;
+    blankThumb.addEventListener('click', () => toggleBase('blank'));
+    layerGrid.appendChild(blankThumb);
+
+    function _setHeatmapOpacity(full) {
+        if (terrainLayer) terrainLayer.setOpacity(OV_STATE.elev && !full ? 0.6 : 1.0);
+    }
+
+    let _blankOn = false;
+    let _blankRect = null;
+
+    function _addBlankRect() {
+        _removeBlankRect();
+        if (!_currentBbox) return;
+        _blankRect = L.rectangle(
+            [[_currentBbox.south, _currentBbox.west], [_currentBbox.north, _currentBbox.east]],
+            {stroke: false, fillColor: '#ffffff', fillOpacity: 1.0, pane: 'blankPane', interactive: false}
+        ).addTo(map);
+    }
+
+    function _removeBlankRect() {
+        if (_blankRect) {
+            map.removeLayer(_blankRect);
+            _blankRect = null;
         }
-        if (msg.landuse_update) {
-          msg.landuse_update.forEach((feat, i) => {
-            if (_currentFeatures[i]) {
-              _currentFeatures[i].properties.corridor_features = feat.properties.corridor_features;
-              if (_currentDetailPairIdx === i && _currentDetailPair) {
-                _currentDetailPair.p.corridor_features = feat.properties.corridor_features;
-                const coords = _currentDetailPair.coords;
-                document.getElementById('detail-content').innerHTML =
-                  buildDetailHtml(_currentDetailPair.p, coords);
-                _attachElevHover();
-                _updateCatenaryAt(_lastCatT);
-              }
+    }
+
+    function toggleBase(key) {
+        if (key === 'blank') {
+            _blankOn = !_blankOn;
+            document.getElementById('base-blank-thumb').classList.toggle('active', _blankOn);
+            if (_blankOn) _addBlankRect(); else _removeBlankRect();
+            _setHeatmapOpacity(_blankOn);
+            return;
+        }
+        const thumbs = document.querySelectorAll('.layer-thumb[data-key]:not([data-key="blank"])');
+        if (key === _activeBaseKey) {
+            map.removeLayer(LAYERS[key].layer);
+            _activeBaseKey = null;
+            thumbs.forEach(el => el.classList.remove('active'));
+            return;
+        }
+        if (_activeBaseKey) map.removeLayer(LAYERS[_activeBaseKey].layer);
+        LAYERS[key].layer.addTo(map);
+        _activeBaseKey = key;
+        thumbs.forEach(el => el.classList.toggle('active', el.dataset.key === key));
+    }
+
+    // ── Terrain / contour overlays ───────────────────────────────────────────────
+    let terrainLayer = null;
+    let _terrainBbox = null;
+    let _slopeStats = {min: 0, max: 45};
+    let contourLayer = null;
+    let _contourSvgEl = null;
+    let _elevStats = {min: 0, max: 0};
+
+    // Overlay toggle state
+    const OV_STATE = {slope: false, elev: false, contour: false, hillshade: false, names: false, landuse: false};
+
+    // Landuse: direct WMS tile layer — combined (satellite fills OSM gaps) with
+    // the original OSM layer rendered on top so tagged data always takes priority.
+    const landuseLayer = L.tileLayer.wms('https://maps.heigit.org/osmlanduse/wms', {
+        layers: 'osmlanduse:osm_lulc_combined_osm4eo,osmlanduse:osm_lulc',
+        styles: '',
+        format: 'image/png',
+        transparent: true,
+        version: '1.1.1',
+        opacity: 0.65,
+        pane: 'landusePane',
+        attribution: 'Land use &copy; <a href="https://osmlanduse.org" target="_blank">osmlanduse.org</a> / HeiGIT',
+    });
+
+    function toggleOverlay(key) {
+        const on = !OV_STATE[key];
+        OV_STATE[key] = on;
+        document.getElementById(`ov-${key}-thumb`).classList.toggle('active', on);
+        if (key === 'slope') {
+            _drawnItems.setStyle({fillOpacity: on ? 0 : 0.2});
+            showSlopeLegend(on);
+            _rebuildTerrainLayer();
+        } else if (key === 'elev') {
+            showElevLegend(on);
+            _rebuildTerrainLayer();
+        } else if (key === 'hillshade') {
+            _rebuildTerrainLayer();
+        } else if (key === 'contour') {
+            if (!contourLayer) return;
+            if (on) contourLayer.addTo(map); else map.removeLayer(contourLayer);
+        } else if (key === 'names') {
+            if (on) labelsLayer.addTo(map); else map.removeLayer(labelsLayer);
+        } else if (key === 'landuse') {
+            if (on) landuseLayer.addTo(map); else map.removeLayer(landuseLayer);
+        }
+    }
+
+    function _setOverlayActive(key, on) {
+        OV_STATE[key] = on;
+        document.getElementById(`ov-${key}-thumb`).classList.toggle('active', on);
+    }
+
+
+    function updateLanduseLayer(_bbox) {
+        // WMS tile layer covers the whole map — no per-bbox refresh needed.
+        // Restore visibility if it was on before the search.
+        if (OV_STATE.landuse && !map.hasLayer(landuseLayer)) {
+            landuseLayer.addTo(map);
+        }
+    }
+
+    async function updateContourLayer(bbox) {
+        const wasOn = (contourLayer && map.hasLayer(contourLayer)) || OV_STATE.contour;
+        if (contourLayer) {
+            map.removeLayer(contourLayer);
+            contourLayer = null;
+        }
+        _contourSvgEl = null;
+        try {
+            const qs = new URLSearchParams({south: bbox.south, west: bbox.west, north: bbox.north, east: bbox.east});
+            const res = await fetch('/slope/contours?' + qs);
+            if (!res.ok) return;
+            const svgText = await res.text();
+            _contourSvgEl = new DOMParser().parseFromString(svgText, 'image/svg+xml').documentElement;
+            contourLayer = L.svgOverlay(_contourSvgEl, [[bbox.south, bbox.west], [bbox.north, bbox.east]], {
+                interactive: false,
+                pane: 'contourPane'
+            });
+            if (wasOn || OV_STATE.contour) {
+                contourLayer.addTo(map);
+                _setOverlayActive('contour', true);
             }
-          });
+        } catch {
         }
-      }
     }
-  } catch (err) {
-    setStatus('Error: ' + err.message);
-  } finally {
-    setLoading(false);
-  }
-}
 
-// ── Rendering ────────────────────────────────────────────────────────────────
-function renderResults(geojson, minM, maxM) {
-  _resultsLayer.clearLayers();
-  _outlineGeoJson = null; _coloredGeoJson = null; _selectedLayer = null; _currentDetailCoords = null;
-  _currentFeatures = geojson.features;
-  const dists  = geojson.features.map(f => f.properties.distance_m);
-  const realMin = dists.length ? Math.min(...dists) : minM;
-  const realMax = dists.length ? Math.max(...dists) : maxM;
-  _lastRealMin = realMin; _lastRealMax = realMax;
-  const outline = L.geoJSON(geojson, {
-    style: f => ({
-      color: 'white', weight: 5.5, opacity: 1,
-      dashArray: f.properties.over_water ? '9 7' : null, pane: 'linesPane',
-    }),
-  });
-  const layer = L.geoJSON(geojson, {
-    style: f => {
-      const t = realMax > realMin ? (f.properties.distance_m - realMin) / (realMax - realMin) : 0.5;
-      return { color: cmapColor(t), weight: 3, opacity: 0.9, dashArray: f.properties.over_water ? '9 7' : null, pane: 'linesPane' };
-    },
-    onEachFeature: (f, lyr) => {
-      lyr.bindTooltip(buildTooltip(f.properties), {
-        direction: 'top', sticky: true, className: 'sl-tip', opacity: 1,
-      });
-      lyr.on('click', () => showDetail(f.properties, f.geometry.coordinates, lyr));
-    },
-  });
-  _outlineGeoJson = outline;
-  _coloredGeoJson = layer;
-  _resultsLayer.addLayer(outline);
-  _resultsLayer.addLayer(layer);
-  return { realMin, realMax };
-}
-
-// ── Detail panel ─────────────────────────────────────────────────────────────
-let _currentDetailPair = null;
-let _currentDetailPairIdx = -1;
-let _currentFeatures = [];   // parallel to renderResults geojson features
-let _elevMarker = null;
-let _svgCursorState = null; // shared between SVG and map hover
-let _catState = null;      // cached unloaded catenary { d, h, H0, w, EA, L0 }
-let _lastCatT  = 0.5;      // last hover fraction for re-draw on param change
-
-function _updateElevMarker(lat, lon) {
-  if (!_elevMarker) {
-    _elevMarker = L.circleMarker([lat, lon], {
-      radius: 7, color: '#f97316', fillColor: '#f97316',
-      fillOpacity: 0.85, weight: 2.5, pane: 'markerPane',
-    }).addTo(map);
-  } else {
-    _elevMarker.setLatLng([lat, lon]);
-  }
-}
-
-function _removeElevMarker() {
-  if (_elevMarker) { map.removeLayer(_elevMarker); _elevMarker = null; }
-}
-
-function _updateElevCursorAt(t, tooltipClientX, tooltipClientY) {
-  if (!_svgCursorState || !_currentDetailPair) return;
-  _lastCatT = t;
-  _updateCatenaryAt(t);
-  const { cursorG, cLine, cDot, padLeft, innerW, padTop, innerH, minElev, maxElev, n, smoothed } = _svgCursorState;
-  const elevRange = maxElev - minElev;
-  const { p } = _currentDetailPair;
-  const cx = (padLeft + t * innerW).toFixed(2);
-  cursorG.removeAttribute('display');
-  cLine.setAttribute('x1', cx); cLine.setAttribute('x2', cx);
-
-  const fi   = t * (n - 1);
-  const lo   = Math.floor(fi), hi = Math.min(lo + 1, n - 1);
-  const frac = fi - lo;
-  const eL   = (smoothed || [])[lo], eH = (smoothed || [])[hi];
-  const elev = (eL != null && eH != null) ? eL + frac * (eH - eL) : (eL ?? eH);
-  const idx  = Math.min(Math.round(fi), n - 1);
-  const distM = Math.round(p.distance_m * t);
-
-  if (elev != null && elevRange > 0) {
-    const cy = (padTop + innerH - ((elev - minElev) / elevRange) * innerH).toFixed(2);
-    cDot.setAttribute('cx', cx); cDot.setAttribute('cy', cy);
-    cDot.removeAttribute('display');
-  } else {
-    cDot.setAttribute('display', 'none');
-  }
-
-  const tip  = document.getElementById('elev-tip');
-  tip.innerHTML = buildSelectedTooltip(p, t);
-
-  if (tooltipClientX != null) {
-    const tipW = tip.offsetWidth || 170;
-    tip.style.display = 'block';
-    tip.style.left = (tooltipClientX + tipW > window.innerWidth ? tooltipClientX - tipW - 8 : tooltipClientX + 10) + 'px';
-    tip.style.top  = (tooltipClientY - 40) + 'px';
-  } else {
-    tip.style.display = 'none';
-  }
-}
-
-function _hideCursor() {
-  if (_svgCursorState) _svgCursorState.cursorG.setAttribute('display', 'none');
-  document.getElementById('elev-tip').style.display = 'none';
-  _removeElevMarker();
-  if (_selectedLayer && _selectedLayer.getTooltip() && _currentDetailPair) {
-    _selectedLayer.setTooltipContent(buildTooltip(_currentDetailPair.p));
-  }
-}
-
-const _MAP_HOVER_PX = 12; // pixel snap distance
-
-function _onMapHover(e) {
-  if (!_svgCursorState || !_currentDetailPair) return;
-  const { coords } = _currentDetailPair;
-  if (!coords || coords.length < 2) return;
-  const [[lonA, latA], [lonB, latB]] = coords;
-
-  // Work in pixel space for threshold check and t computation
-  const pA = map.latLngToContainerPoint([latA, lonA]);
-  const pB = map.latLngToContainerPoint([latB, lonB]);
-  const pM = e.containerPoint;
-  const dx = pB.x - pA.x, dy = pB.y - pA.y;
-  const len2 = dx * dx + dy * dy;
-  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((pM.x - pA.x) * dx + (pM.y - pA.y) * dy) / len2));
-  const nearX = pA.x + t * dx, nearY = pA.y + t * dy;
-  const dist = Math.hypot(pM.x - nearX, pM.y - nearY);
-
-  if (dist > _MAP_HOVER_PX) { _hideCursor(); return; }
-
-  _updateElevCursorAt(t, e.originalEvent.clientX, e.originalEvent.clientY);
-  _updateElevMarker(latA + t * (latB - latA), lonA + t * (lonB - lonA));
-  if (_selectedLayer && _selectedLayer.getTooltip()) {
-    _selectedLayer.setTooltipContent(buildSelectedTooltip(_currentDetailPair.p, t));
-  }
-}
-
-function _svgDims(svg) {
-  return {
-    padLeft: +svg.dataset.pl, innerW:   +svg.dataset.iw,
-    padTop:  +svg.dataset.pt, innerH:   +svg.dataset.ih,
-    minElev: +svg.dataset.mn, maxElev:  +svg.dataset.mx,
-  };
-}
-
-function _attachElevHover() {
-  _svgCursorState = null;
-  if (!_currentDetailPair) return;
-  const { coords } = _currentDetailPair;
-  const svg = document.querySelector('#detail-content svg[data-elev]');
-  if (!svg) return;
-
-  const { padLeft, innerW, padTop, innerH, minElev, maxElev } = _svgDims(svg);
-  const n = +svg.dataset.n;
-
-  const cursorG = svg.querySelector('.elev-cursor');
-  const cLine   = svg.querySelector('.elev-cursor-line');
-  const cDot    = svg.querySelector('.elev-cursor-dot');
-  const overlay = svg.querySelector('.elev-overlay');
-  if (!overlay) return;
-
-  const smoothed = _smoothElevs(_currentDetailPair.p.terrain_elevs || []);
-  _svgCursorState = { cursorG, cLine, cDot, padLeft, innerW, padTop, innerH, minElev, maxElev, n, smoothed };
-
-  overlay.addEventListener('mousemove', e => {
-    const svgPt = svg.createSVGPoint();
-    svgPt.x = e.clientX; svgPt.y = e.clientY;
-    const pt = svgPt.matrixTransform(svg.getScreenCTM().inverse());
-    const t  = Math.max(0, Math.min(1, (pt.x - padLeft) / innerW));
-    _updateElevCursorAt(t, e.clientX, e.clientY);
-    if (coords && coords.length >= 2) {
-      const [[lonA, latA], [lonB, latB]] = coords;
-      _updateElevMarker(latA + t * (latB - latA), lonA + t * (lonB - lonA));
+    function _rebuildTerrainLayer() {
+        if (terrainLayer) {
+            map.removeLayer(terrainLayer);
+            terrainLayer = null;
+        }
+        if (!_terrainBbox) return;
+        const {south, west, north, east} = _terrainBbox;
+        const anyOn = OV_STATE.slope || OV_STATE.elev || OV_STATE.hillshade;
+        if (!anyOn) return;
+        const qs = new URLSearchParams({
+            south, west, north, east,
+            slope: OV_STATE.slope ? 1 : 0,
+            elev: OV_STATE.elev ? 1 : 0,
+            hillshade: OV_STATE.hillshade ? 1 : 0,
+        });
+        const opacity = OV_STATE.elev && !_blankOn ? 0.6 : 1.0;
+        terrainLayer = L.imageOverlay(`/terrain/image?${qs}`, [[south, west], [north, east]], {
+            opacity, pane: 'terrainPane',
+            attribution: 'Terrain &copy; Copernicus GLO-30 / TINItaly INGV',
+        });
+        terrainLayer.addTo(map);
     }
-  });
 
-  overlay.addEventListener('mouseleave', _hideCursor);
-}
+    async function updateTerrainLayer(bbox) {
+        _terrainBbox = bbox;
+        _rebuildTerrainLayer();
+        const qs = new URLSearchParams({south: bbox.south, west: bbox.west, north: bbox.north, east: bbox.east});
+        try {
+            const res = await fetch('/slope/stats?' + qs);
+            if (res.ok) {
+                const {min_deg, max_deg} = await res.json();
+                _slopeStats = {min: min_deg, max: max_deg};
+                showSlopeLegend(OV_STATE.slope);
+            }
+        } catch {
+        }
+        try {
+            const res = await fetch('/elevation/stats?' + qs);
+            if (res.ok) {
+                const {min_m, max_m} = await res.json();
+                _elevStats = {min: min_m, max: max_m};
+                showElevLegend(OV_STATE.elev);
+            }
+        } catch {
+        }
+    }
 
-function showDetail(p, coords, lyr) {
-  if (_selectedLayer) _restoreAll();
-  map.off('mousemove', _onMapHover);
-  map.off('mouseout', _hideCursor);
-  _selectedLayer = lyr;
-  _currentDetailCoords = coords || null;
-  _currentDetailPair = { p, coords: coords || null };
-  _currentDetailPairIdx = _currentFeatures.findIndex(f => f.properties === p);
-  if (lyr) _dimOthers(lyr);
-  _catState = null; _lastCatT = 0.5;
-  document.getElementById('detail-content').innerHTML = buildDetailHtml(p, coords);
-  document.getElementById('panel-detail').style.display = 'block';
-  _attachElevHover();
-  _updateCatenaryAt(0.5);
-  map.on('mousemove', _onMapHover);
-  map.on('mouseout', _hideCursor);
-}
+    function showElevLegend(visible) {
+        document.getElementById('elev-legend').style.display = visible ? 'block' : 'none';
+        if (!visible) return;
+        const {min, max} = _elevStats;
+        _fillBar('elev-bar', t => terrainColor(t));
+        document.getElementById('elev-leg-min').textContent = min + ' m';
+        document.getElementById('elev-leg-max').textContent = max + ' m';
+    }
 
-function closeDetail() {
-  map.off('mousemove', _onMapHover);
-  map.off('mouseout', _hideCursor);
-  _restoreAll();
-  _currentDetailCoords = null;
-  _currentDetailPair = null;
-  _currentDetailPairIdx = -1;
-  _svgCursorState = null;
-  _catState = null;
-  _removeElevMarker();
-  document.getElementById('elev-tip').style.display = 'none';
-  document.getElementById('panel-detail').style.display = 'none';
-  document.getElementById('detail-content').innerHTML = '';
-}
+    // ── Geolocation ──────────────────────────────────────────────────────────────
+    function geolocate() {
+        if (!navigator.geolocation) return;
+        const btn = document.getElementById('geolocate-btn');
+        btn.style.opacity = '0.5';
+        navigator.geolocation.getCurrentPosition(
+            pos => {
+                map.setView([pos.coords.latitude, pos.coords.longitude], 15);
+                btn.style.opacity = '1';
+            },
+            () => {
+                btn.style.opacity = '1';
+            },
+            {timeout: 8000}
+        );
+    }
 
-function featureColor(f, fallback='#64748b') {
-  if (!f) return fallback;
-  if (f.category === 'osmlanduse') {
-    const key = (f.label || '').toLowerCase().replace(/\s+/g, '_');
-    return _landuseTypes[key]?.color || fallback;
-  }
-  return _overpasFeatures[`${f.category}:${f.label}`.toLowerCase()]?.color || fallback;
-}
+    // ── noUiSlider ───────────────────────────────────────────────────────────────
+    const sliderEl = document.getElementById('length-slider');
+    noUiSlider.create(sliderEl, {
+        start: [15, 50],
+        connect: true,
+        range: {min: [1], '20%': [10, 1], '45%': [50, 5], '70%': [200, 10], '85%': [500, 25], max: [4000]},
+        tooltips: false,
+    });
+    sliderEl.noUiSlider.on('update', (vals) => {
+        document.getElementById('slider-val').textContent = `${Math.round(vals[0])} – ${Math.round(vals[1])} m`;
+    });
 
-function _formatTag(val) {
-  if (!val) return val;
-  const s = val.replace(/_/g, ' ');
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
+    // ── Draw rectangle ───────────────────────────────────────────────────────────
+    const _drawnItems = new L.FeatureGroup().addTo(map);
 
-function featureLabel(f) {
-  if (!f) return '';
-  if (f.label) { const l = _formatTag(f.label); return f.name ? `${l}: ${f.name}` : l; }
-  return f.category || '';
-}
+    // Include Draw control for event system only (toolbar hidden via CSS)
+    map.addControl(new L.Control.Draw({
+        draw: {
+            rectangle: {shapeOptions: {color: '#b45309', weight: 2}},
+            polyline: false,
+            polygon: false,
+            circle: false,
+            circlemarker: false,
+            marker: false
+        },
+        edit: false,
+    }));
 
-function _escXml(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+    let _drawHandler = null;
 
-const _PLACE_CATS = new Set(['place', 'boundary']);
+    function toggleSelectArea() {
+        const btn = document.getElementById('selectAreaBtn');
+        if (_drawHandler) {
+            _drawHandler.disable();
+            _drawHandler = null;
+            btn.classList.remove('active');
+            return;
+        }
+        _drawHandler = new L.Draw.Rectangle(map, {shapeOptions: {color: '#b45309', weight: 2, fillOpacity: 0.08}});
+        _drawHandler.enable();
+        btn.classList.add('active');
+    }
 
-// Return corridor features that overlap t (0–1 along line), excluding place/boundary
-function featuresAtT(features, t) {
-  if (!features) return [];
-  return features.filter(f => !_PLACE_CATS.has(f.category) && f.segments && f.segments.some(s => s.t_start <= t && t <= s.t_end));
-}
+    let _currentBbox = null;
+
+    map.on(L.Draw.Event.CREATED, e => {
+        _drawnItems.clearLayers();
+        _drawnItems.addLayer(e.layer);
+        const b = e.layer.getBounds();
+        _currentBbox = {south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast()};
+        if (_blankOn) _addBlankRect();
+        _drawHandler = null;
+        document.getElementById('selectAreaBtn').classList.remove('active');
+        document.getElementById('searchBtn').disabled = false;
+        setStatus('Area selected — click Search');
+    });
+
+    // ── Search ───────────────────────────────────────────────────────────────────
+    const _resultsLayer = L.layerGroup([], {pane: 'linesPane'}).addTo(map);
+
+    async function doSearch() {
+        if (!_currentBbox) {
+            setStatus('Draw an area first');
+            return;
+        }
+
+        const vals = sliderEl.noUiSlider.get();
+        const minM = parseFloat(vals[0]);
+        const maxM = parseFloat(vals[1]);
+        const water = document.getElementById('water').value;
+        const maxSlope = parseFloat(document.getElementById('maxSlope').value);
+        const clearanceM = parseFloat(document.getElementById('clearanceM').value) || 0;
+
+        if (minM >= maxM) {
+            setStatus('Min must be less than max');
+            return;
+        }
+
+        const {south, west, north, east} = _currentBbox;
+        if (Math.abs(north - south) > 0.1 || Math.abs(east - west) > 0.1) {
+            setStatus('Area too large — max 0.1° per side');
+            return;
+        }
+
+        setLoading(true);
+        closeDetail();
+        _resultsLayer.clearLayers();
+
+        try {
+            const qs = new URLSearchParams({
+                south,
+                west,
+                north,
+                east,
+                min_m: minM,
+                max_m: maxM,
+                water,
+                max_slope: maxSlope,
+                clearance_m: clearanceM
+            });
+            const resp = await fetch('/spots?' + qs);
+            if (!resp.ok) {
+                const body = await resp.json().catch(() => ({}));
+                throw new Error(body.detail || `HTTP ${resp.status}`);
+            }
+
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                buf += decoder.decode(value, {stream: true});
+                const parts = buf.split('\n\n');
+                buf = parts.pop();
+                for (const part of parts) {
+                    const line = part.trim();
+                    if (!line.startsWith('data: ')) continue;
+                    let msg;
+                    try {
+                        msg = JSON.parse(line.slice(6));
+                    } catch {
+                        continue;
+                    }
+                    if (msg.error) throw new Error(msg.error);
+                    if (msg.status) setStatus(msg.status);
+                    if (msg.pct != null) setProgress(msg.pct);
+                    if (msg.result) {
+                        const geojson = msg.result;
+                        const {realMin, realMax} = renderResults(geojson, minM, maxM);
+                        const n = geojson.features.length;
+                        setStatus(`${n} pair${n !== 1 ? 's' : ''} found`);
+                        drawLegend(realMin, realMax);
+                        showSlopeLegend(OV_STATE.slope);
+                        updateTerrainLayer(_currentBbox);
+                        updateContourLayer(_currentBbox);
+                        updateLanduseLayer(_currentBbox);
+                    }
+                    if (msg.landuse_update) {
+                        msg.landuse_update.forEach((feat, i) => {
+                            if (_currentFeatures[i]) {
+                                _currentFeatures[i].properties.corridor_features = feat.properties.corridor_features;
+                                if (_currentDetailPairIdx === i && _currentDetailPair) {
+                                    _currentDetailPair.p.corridor_features = feat.properties.corridor_features;
+                                    const coords = _currentDetailPair.coords;
+                                    document.getElementById('detail-content').innerHTML =
+                                        buildDetailHtml(_currentDetailPair.p, coords);
+                                    _attachElevHover();
+                                    _updateCatenaryAt(_lastCatT);
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+        } catch (err) {
+            setStatus('Error: ' + err.message);
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    // ── Rendering ────────────────────────────────────────────────────────────────
+    function renderResults(geojson, minM, maxM) {
+        _resultsLayer.clearLayers();
+        _outlineGeoJson = null;
+        _coloredGeoJson = null;
+        _selectedLayer = null;
+        _currentDetailCoords = null;
+        _currentFeatures = geojson.features;
+        const dists = geojson.features.map(f => f.properties.distance_m);
+        const realMin = dists.length ? Math.min(...dists) : minM;
+        const realMax = dists.length ? Math.max(...dists) : maxM;
+        _lastRealMin = realMin;
+        _lastRealMax = realMax;
+        const outline = L.geoJSON(geojson, {
+            style: f => ({
+                color: 'white', weight: 5.5, opacity: 1,
+                dashArray: f.properties.over_water ? '9 7' : null, pane: 'linesPane',
+            }),
+        });
+        const layer = L.geoJSON(geojson, {
+            style: f => {
+                const t = realMax > realMin ? (f.properties.distance_m - realMin) / (realMax - realMin) : 0.5;
+                return {
+                    color: cmapColor(t),
+                    weight: 3,
+                    opacity: 0.9,
+                    dashArray: f.properties.over_water ? '9 7' : null,
+                    pane: 'linesPane'
+                };
+            },
+            onEachFeature: (f, lyr) => {
+                lyr.bindTooltip(buildTooltip(f.properties), {
+                    direction: 'top', sticky: true, className: 'sl-tip', opacity: 1,
+                });
+                lyr.on('click', () => showDetail(f.properties, f.geometry.coordinates, lyr));
+            },
+        });
+        _outlineGeoJson = outline;
+        _coloredGeoJson = layer;
+        _resultsLayer.addLayer(outline);
+        _resultsLayer.addLayer(layer);
+        return {realMin, realMax};
+    }
+
+    // ── Detail panel ─────────────────────────────────────────────────────────────
+    let _currentDetailPair = null;
+    let _currentDetailPairIdx = -1;
+    let _currentFeatures = [];   // parallel to renderResults geojson features
+    let _elevMarker = null;
+    let _svgCursorState = null; // shared between SVG and map hover
+    let _catState = null;      // cached unloaded catenary { d, h, H0, w, EA, L0 }
+    let _lastCatT = 0.5;      // last hover fraction for re-draw on param change
+
+    function _updateElevMarker(lat, lon) {
+        if (!_elevMarker) {
+            _elevMarker = L.circleMarker([lat, lon], {
+                radius: 7, color: '#f97316', fillColor: '#f97316',
+                fillOpacity: 0.85, weight: 2.5, pane: 'markerPane',
+            }).addTo(map);
+        } else {
+            _elevMarker.setLatLng([lat, lon]);
+        }
+    }
+
+    function _removeElevMarker() {
+        if (_elevMarker) {
+            map.removeLayer(_elevMarker);
+            _elevMarker = null;
+        }
+    }
+
+    function _updateElevCursorAt(t, tooltipClientX, tooltipClientY) {
+        if (!_svgCursorState || !_currentDetailPair) return;
+        _lastCatT = t;
+        _updateCatenaryAt(t);
+        const {cursorG, cLine, cDot, padLeft, innerW, padTop, innerH, minElev, maxElev, n, smoothed} = _svgCursorState;
+        const elevRange = maxElev - minElev;
+        const {p} = _currentDetailPair;
+        const cx = (padLeft + t * innerW).toFixed(2);
+        cursorG.removeAttribute('display');
+        cLine.setAttribute('x1', cx);
+        cLine.setAttribute('x2', cx);
+
+        const fi = t * (n - 1);
+        const lo = Math.floor(fi), hi = Math.min(lo + 1, n - 1);
+        const frac = fi - lo;
+        const eL = (smoothed || [])[lo], eH = (smoothed || [])[hi];
+        const elev = (eL != null && eH != null) ? eL + frac * (eH - eL) : (eL ?? eH);
+        const idx = Math.min(Math.round(fi), n - 1);
+        const distM = Math.round(p.distance_m * t);
+
+        if (elev != null && elevRange > 0) {
+            const cy = (padTop + innerH - ((elev - minElev) / elevRange) * innerH).toFixed(2);
+            cDot.setAttribute('cx', cx);
+            cDot.setAttribute('cy', cy);
+            cDot.removeAttribute('display');
+        } else {
+            cDot.setAttribute('display', 'none');
+        }
+
+        const tip = document.getElementById('elev-tip');
+        tip.innerHTML = buildSelectedTooltip(p, t);
+
+        if (tooltipClientX != null) {
+            const tipW = tip.offsetWidth || 170;
+            tip.style.display = 'block';
+            tip.style.left = (tooltipClientX + tipW > window.innerWidth ? tooltipClientX - tipW - 8 : tooltipClientX + 10) + 'px';
+            tip.style.top = (tooltipClientY - 40) + 'px';
+        } else {
+            tip.style.display = 'none';
+        }
+    }
+
+    function _hideCursor() {
+        if (_svgCursorState) _svgCursorState.cursorG.setAttribute('display', 'none');
+        document.getElementById('elev-tip').style.display = 'none';
+        _removeElevMarker();
+        if (_selectedLayer && _selectedLayer.getTooltip() && _currentDetailPair) {
+            _selectedLayer.setTooltipContent(buildTooltip(_currentDetailPair.p));
+        }
+    }
+
+    const _MAP_HOVER_PX = 12; // pixel snap distance
+
+    function _onMapHover(e) {
+        if (!_svgCursorState || !_currentDetailPair) return;
+        const {coords} = _currentDetailPair;
+        if (!coords || coords.length < 2) return;
+        const [[lonA, latA], [lonB, latB]] = coords;
+
+        // Work in pixel space for threshold check and t computation
+        const pA = map.latLngToContainerPoint([latA, lonA]);
+        const pB = map.latLngToContainerPoint([latB, lonB]);
+        const pM = e.containerPoint;
+        const dx = pB.x - pA.x, dy = pB.y - pA.y;
+        const len2 = dx * dx + dy * dy;
+        const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((pM.x - pA.x) * dx + (pM.y - pA.y) * dy) / len2));
+        const nearX = pA.x + t * dx, nearY = pA.y + t * dy;
+        const dist = Math.hypot(pM.x - nearX, pM.y - nearY);
+
+        if (dist > _MAP_HOVER_PX) {
+            _hideCursor();
+            return;
+        }
+
+        _updateElevCursorAt(t, e.originalEvent.clientX, e.originalEvent.clientY);
+        _updateElevMarker(latA + t * (latB - latA), lonA + t * (lonB - lonA));
+        if (_selectedLayer && _selectedLayer.getTooltip()) {
+            _selectedLayer.setTooltipContent(buildSelectedTooltip(_currentDetailPair.p, t));
+        }
+    }
+
+    function _svgDims(svg) {
+        return {
+            padLeft: +svg.dataset.pl, innerW: +svg.dataset.iw,
+            padTop: +svg.dataset.pt, innerH: +svg.dataset.ih,
+            minElev: +svg.dataset.mn, maxElev: +svg.dataset.mx,
+        };
+    }
+
+    function _attachElevHover() {
+        _svgCursorState = null;
+        if (!_currentDetailPair) return;
+        const {coords} = _currentDetailPair;
+        const svg = document.querySelector('#detail-content svg[data-elev]');
+        if (!svg) return;
+
+        const {padLeft, innerW, padTop, innerH, minElev, maxElev} = _svgDims(svg);
+        const n = +svg.dataset.n;
+
+        const cursorG = svg.querySelector('.elev-cursor');
+        const cLine = svg.querySelector('.elev-cursor-line');
+        const cDot = svg.querySelector('.elev-cursor-dot');
+        const overlay = svg.querySelector('.elev-overlay');
+        if (!overlay) return;
+
+        const smoothed = _smoothElevs(_currentDetailPair.p.terrain_elevs || []);
+        _svgCursorState = {cursorG, cLine, cDot, padLeft, innerW, padTop, innerH, minElev, maxElev, n, smoothed};
+
+        overlay.addEventListener('mousemove', e => {
+            const svgPt = svg.createSVGPoint();
+            svgPt.x = e.clientX;
+            svgPt.y = e.clientY;
+            const pt = svgPt.matrixTransform(svg.getScreenCTM().inverse());
+            const t = Math.max(0, Math.min(1, (pt.x - padLeft) / innerW));
+            _updateElevCursorAt(t, e.clientX, e.clientY);
+            if (coords && coords.length >= 2) {
+                const [[lonA, latA], [lonB, latB]] = coords;
+                _updateElevMarker(latA + t * (latB - latA), lonA + t * (lonB - lonA));
+            }
+        });
+
+        overlay.addEventListener('mouseleave', _hideCursor);
+    }
+
+    function showDetail(p, coords, lyr) {
+        if (_selectedLayer) _restoreAll();
+        map.off('mousemove', _onMapHover);
+        map.off('mouseout', _hideCursor);
+        _selectedLayer = lyr;
+        _currentDetailCoords = coords || null;
+        _currentDetailPair = {p, coords: coords || null};
+        _currentDetailPairIdx = _currentFeatures.findIndex(f => f.properties === p);
+        if (lyr) _dimOthers(lyr);
+        _catState = null;
+        _lastCatT = 0.5;
+        document.getElementById('detail-content').innerHTML = buildDetailHtml(p, coords);
+        document.getElementById('panel-detail').style.display = 'block';
+        _attachElevHover();
+        _updateCatenaryAt(0.5);
+        map.on('mousemove', _onMapHover);
+        map.on('mouseout', _hideCursor);
+    }
+
+    function closeDetail() {
+        map.off('mousemove', _onMapHover);
+        map.off('mouseout', _hideCursor);
+        _restoreAll();
+        _currentDetailCoords = null;
+        _currentDetailPair = null;
+        _currentDetailPairIdx = -1;
+        _svgCursorState = null;
+        _catState = null;
+        _removeElevMarker();
+        document.getElementById('elev-tip').style.display = 'none';
+        document.getElementById('panel-detail').style.display = 'none';
+        document.getElementById('detail-content').innerHTML = '';
+    }
+
+    function featureColor(f, fallback = '#64748b') {
+        if (!f) return fallback;
+        if (f.category === 'osmlanduse') {
+            const key = (f.label || '').toLowerCase().replace(/\s+/g, '_');
+            return _landuseTypes[key]?.color || fallback;
+        }
+        return _overpasFeatures[`${f.category}:${f.label}`.toLowerCase()]?.color || fallback;
+    }
+
+    function _formatTag(val) {
+        if (!val) return val;
+        const s = val.replace(/_/g, ' ');
+        return s.charAt(0).toUpperCase() + s.slice(1);
+    }
+
+    function featureLabel(f) {
+        if (!f) return '';
+        if (f.label) {
+            const l = _formatTag(f.label);
+            return f.name ? `${l}: ${f.name}` : l;
+        }
+        return f.category || '';
+    }
+
+    function _escXml(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    const _PLACE_CATS = new Set(['place', 'boundary']);
+
+    // Return corridor features that overlap t (0–1 along line), excluding place/boundary
+    function featuresAtT(features, t) {
+        if (!features) return [];
+        return features.filter(f => !_PLACE_CATS.has(f.category) && f.segments && f.segments.some(s => s.t_start <= t && t <= s.t_end));
+    }
 
 
-function kindLabel(k) { return (k || '').replace(/_/g, ' '); }
+    function kindLabel(k) {
+        return (k || '').replace(/_/g, ' ');
+    }
 
-// ── Bearing / compass ────────────────────────────────────────────────────────
-function computeBearing(lonA, latA, lonB, latB) {
-  const toRad = d => d * Math.PI / 180;
-  const y = Math.sin(toRad(lonB - lonA)) * Math.cos(toRad(latB));
-  const x = Math.cos(toRad(latA)) * Math.sin(toRad(latB))
-          - Math.sin(toRad(latA)) * Math.cos(toRad(latB)) * Math.cos(toRad(lonB - lonA));
-  return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
-}
-function cardinal(deg) {
-  return ['N','NE','E','SE','S','SW','W','NW'][Math.round(deg / 45) % 8];
-}
-function compassSvg(deg) {
-  const R = 13, cx = R + 1, cy = R + 1, sz = 2 * R + 2;
-  const a = (deg - 90) * Math.PI / 180;
-  const tx = (cx + R * 0.65 * Math.cos(a)).toFixed(1);
-  const ty = (cy + R * 0.65 * Math.sin(a)).toFixed(1);
-  const bx = (cx - R * 0.42 * Math.cos(a)).toFixed(1);
-  const by = (cy - R * 0.42 * Math.sin(a)).toFixed(1);
-  const ticks = [[0,0,-R+1.5],[90,R-1.5,0],[180,0,R-1.5],[270,-R+1.5,0]].map(([d,dx,dy]) =>
-    `<text x="${(cx+dx).toFixed(1)}" y="${(cy+dy+2).toFixed(1)}" font-size="5" fill="#a8a29e" text-anchor="middle" dominant-baseline="middle" font-family="system-ui">${['N','E','S','W'][d/90]}</text>`
-  ).join('');
-  return `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}" style="vertical-align:middle;flex-shrink:0">
+    // ── Bearing / compass ────────────────────────────────────────────────────────
+    function computeBearing(lonA, latA, lonB, latB) {
+        const toRad = d => d * Math.PI / 180;
+        const y = Math.sin(toRad(lonB - lonA)) * Math.cos(toRad(latB));
+        const x = Math.cos(toRad(latA)) * Math.sin(toRad(latB))
+            - Math.sin(toRad(latA)) * Math.cos(toRad(latB)) * Math.cos(toRad(lonB - lonA));
+        return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+    }
+
+    function cardinal(deg) {
+        return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(deg / 45) % 8];
+    }
+
+    function compassSvg(deg) {
+        const R = 13, cx = R + 1, cy = R + 1, sz = 2 * R + 2;
+        const a = (deg - 90) * Math.PI / 180;
+        const tx = (cx + R * 0.65 * Math.cos(a)).toFixed(1);
+        const ty = (cy + R * 0.65 * Math.sin(a)).toFixed(1);
+        const bx = (cx - R * 0.42 * Math.cos(a)).toFixed(1);
+        const by = (cy - R * 0.42 * Math.sin(a)).toFixed(1);
+        const ticks = [[0, 0, -R + 1.5], [90, R - 1.5, 0], [180, 0, R - 1.5], [270, -R + 1.5, 0]].map(([d, dx, dy]) =>
+            `<text x="${(cx + dx).toFixed(1)}" y="${(cy + dy + 2).toFixed(1)}" font-size="5" fill="#a8a29e" text-anchor="middle" dominant-baseline="middle" font-family="system-ui">${['N', 'E', 'S', 'W'][d / 90]}</text>`
+        ).join('');
+        return `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}" style="vertical-align:middle;flex-shrink:0">
     <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="rgba(180,140,90,0.3)" stroke-width="1"/>
     ${ticks}
     <line x1="${bx}" y1="${by}" x2="${tx}" y2="${ty}" stroke="#b45309" stroke-width="2" stroke-linecap="round"/>
     <circle cx="${tx}" cy="${ty}" r="2.5" fill="#b45309"/>
   </svg>`;
-}
+    }
 
-// ── Selection highlight ──────────────────────────────────────────────────────
-let _selectedLayer = null;
-let _outlineGeoJson = null;
-let _coloredGeoJson = null;
-let _lastRealMin = 0, _lastRealMax = 1;
-let _currentDetailCoords = null;
+    // ── Selection highlight ──────────────────────────────────────────────────────
+    let _selectedLayer = null;
+    let _outlineGeoJson = null;
+    let _coloredGeoJson = null;
+    let _lastRealMin = 0, _lastRealMax = 1;
+    let _currentDetailCoords = null;
 
-let _selectedHighlightOutline = null;
-let _selectedHighlightColor = null;
+    let _selectedHighlightOutline = null;
+    let _selectedHighlightColor = null;
 
-function _dimOthers(selectedLyr) {
-  // Dim the entire linesPane with one CSS opacity change — no per-path iteration.
-  map.getPane('linesPane').style.opacity = '0.5';
+    function _dimOthers(selectedLyr) {
+        // Dim the entire linesPane with one CSS opacity change — no per-path iteration.
+        map.getPane('linesPane').style.opacity = '0.5';
 
-  // Lift the selected line into selectedPane at full opacity.
-  const f = selectedLyr.feature;
-  const t = _lastRealMax > _lastRealMin
-    ? (f.properties.distance_m - _lastRealMin) / (_lastRealMax - _lastRealMin)
-    : 0.5;
-  _selectedHighlightOutline = L.geoJSON(f, {
-    style: { color: 'white', weight: 9, opacity: 1.0,
-             dashArray: f.properties.over_water ? '9 7' : null, pane: 'selectedPane' },
-  }).addTo(map);
-  _selectedHighlightColor = L.geoJSON(f, {
-    style: { color: cmapColor(t), weight: 5.5, opacity: 1.0,
-             dashArray: f.properties.over_water ? '9 7' : null, pane: 'selectedPane' },
-  }).addTo(map);
-}
+        // Lift the selected line into selectedPane at full opacity.
+        const f = selectedLyr.feature;
+        const t = _lastRealMax > _lastRealMin
+            ? (f.properties.distance_m - _lastRealMin) / (_lastRealMax - _lastRealMin)
+            : 0.5;
+        _selectedHighlightOutline = L.geoJSON(f, {
+            style: {
+                color: 'white', weight: 9, opacity: 1.0,
+                dashArray: f.properties.over_water ? '9 7' : null, pane: 'selectedPane'
+            },
+        }).addTo(map);
+        _selectedHighlightColor = L.geoJSON(f, {
+            style: {
+                color: cmapColor(t), weight: 5.5, opacity: 1.0,
+                dashArray: f.properties.over_water ? '9 7' : null, pane: 'selectedPane'
+            },
+        }).addTo(map);
+    }
 
-function _restoreAll() {
-  map.getPane('linesPane').style.opacity = '1.0';
-  if (_selectedHighlightOutline) { map.removeLayer(_selectedHighlightOutline); _selectedHighlightOutline = null; }
-  if (_selectedHighlightColor)   { map.removeLayer(_selectedHighlightColor);   _selectedHighlightColor   = null; }
-  _selectedLayer = null;
-}
+    function _restoreAll() {
+        map.getPane('linesPane').style.opacity = '1.0';
+        if (_selectedHighlightOutline) {
+            map.removeLayer(_selectedHighlightOutline);
+            _selectedHighlightOutline = null;
+        }
+        if (_selectedHighlightColor) {
+            map.removeLayer(_selectedHighlightColor);
+            _selectedHighlightColor = null;
+        }
+        _selectedLayer = null;
+    }
 
-function focusLine() {
-  if (!_currentDetailCoords) return;
-  const [[lonA, latA], [lonB, latB]] = _currentDetailCoords;
-  map.flyToBounds([[latA, lonA], [latB, lonB]], { padding: [60, 60], maxZoom: 18 });
-}
+    function focusLine() {
+        if (!_currentDetailCoords) return;
+        const [[lonA, latA], [lonB, latB]] = _currentDetailCoords;
+        map.flyToBounds([[latA, lonA], [latB, lonB]], {padding: [60, 60], maxZoom: 18});
+    }
 
-function copyCoords(text, btn) {
-  navigator.clipboard.writeText(text).then(() => {
-    btn.textContent = '✓';
-    setTimeout(() => { btn.textContent = 'Copy'; }, 1400);
-  }).catch(() => {});
-}
+    function copyCoords(text, btn) {
+        navigator.clipboard.writeText(text).then(() => {
+            btn.textContent = '✓';
+            setTimeout(() => {
+                btn.textContent = 'Copy';
+            }, 1400);
+        }).catch(() => {
+        });
+    }
 
-function anchorCard(label, id, kind, tags, copyBtn, terrain) {
-  tags = tags || {};
-  const rows = [];
-  const add = (k, ...keys) => {
-    for (const key of keys) if (tags[key]) { rows.push(`<div class="ac-row">${k}: ${tags[key]}</div>`); return; }
-  };
-  if (terrain) rows.push(`<div class="ac-row">Terrain: ${terrain.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</div>`);
-  add('Species', 'species', 'species:en');
-  add('Name', 'name');
-  add('Circumference', 'circumference');
-  add('Height', 'height');
-  const osmLink = id > 0
-    ? `<a href="https://www.openstreetmap.org/node/${id}" target="_blank">View on OSM ↗</a>`
-    : '';
-  return `<div class="anchor-card">
+    function anchorCard(label, id, kind, tags, copyBtn, terrain) {
+        tags = tags || {};
+        const rows = [];
+        const add = (k, ...keys) => {
+            for (const key of keys) if (tags[key]) {
+                rows.push(`<div class="ac-row">${k}: ${tags[key]}</div>`);
+                return;
+            }
+        };
+        if (terrain) rows.push(`<div class="ac-row">Terrain: ${terrain.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</div>`);
+        add('Species', 'species', 'species:en');
+        add('Name', 'name');
+        add('Circumference', 'circumference');
+        add('Height', 'height');
+        const osmLink = id > 0
+            ? `<a href="https://www.openstreetmap.org/node/${id}" target="_blank">View on OSM ↗</a>`
+            : '';
+        return `<div class="anchor-card">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:4px">
       <div class="ac-title">${label}: ${kindLabel(kind)}</div>
       ${copyBtn || ''}
     </div>
     ${rows.join('')}${osmLink}
   </div>`;
-}
+    }
 
-// Nice ticks: pick step from STEPS that gives count closest to n
-function _niceTicks(lo, hi, n = 5) {
-  const range = hi - lo;
-  if (range < 1) return [];
-  const STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
-  const step = STEPS.reduce((best, s) =>
-    Math.abs(Math.round(range / s) - n) < Math.abs(Math.round(range / best) - n) ? s : best
-  );
-  const start = Math.ceil(lo / step) * step;
-  const ticks = [];
-  for (let v = start; v <= hi + 1e-9; v += step) ticks.push(Math.round(v));
-  return ticks;
-}
+    // Nice ticks: pick step from STEPS that gives count closest to n
+    function _niceTicks(lo, hi, n = 5) {
+        const range = hi - lo;
+        if (range < 1) return [];
+        const STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
+        const step = STEPS.reduce((best, s) =>
+            Math.abs(Math.round(range / s) - n) < Math.abs(Math.round(range / best) - n) ? s : best
+        );
+        const start = Math.ceil(lo / step) * step;
+        const ticks = [];
+        for (let v = start; v <= hi + 1e-9; v += step) ticks.push(Math.round(v));
+        return ticks;
+    }
 
-// Single-pass light smooth: [0.15, 0.7, 0.15], endpoints fixed
-function _smoothElevs(elevs) {
-  if (!elevs || elevs.length < 3) return elevs;
-  return elevs.map((v, i) => {
-    if (i === 0 || i === elevs.length - 1 || v == null) return v;
-    const a = elevs[i - 1], b = elevs[i + 1];
-    if (a == null || b == null) return v;
-    return 0.15 * a + 0.7 * v + 0.15 * b;
-  });
-}
+    // Single-pass light smooth: [0.15, 0.7, 0.15], endpoints fixed
+    function _smoothElevs(elevs) {
+        if (!elevs || elevs.length < 3) return elevs;
+        return elevs.map((v, i) => {
+            if (i === 0 || i === elevs.length - 1 || v == null) return v;
+            const a = elevs[i - 1], b = elevs[i + 1];
+            if (a == null || b == null) return v;
+            return 0.15 * a + 0.7 * v + 0.15 * b;
+        });
+    }
 
-// Catmull-Rom spline → SVG cubic bezier path
-function catmullRomPath(pts) {
-  if (!pts || pts.length < 2) return '';
-  if (pts.length === 2) return `M ${pts[0][0]},${pts[0][1]} L ${pts[1][0]},${pts[1][1]}`;
-  let d = `M ${pts[0][0]},${pts[0][1]}`;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[Math.max(0, i - 1)];
-    const p1 = pts[i];
-    const p2 = pts[i + 1];
-    const p3 = pts[Math.min(pts.length - 1, i + 2)];
-    const cp1x = (p1[0] + (p2[0] - p0[0]) / 6).toFixed(2);
-    const cp1y = (p1[1] + (p2[1] - p0[1]) / 6).toFixed(2);
-    const cp2x = (p2[0] - (p3[0] - p1[0]) / 6).toFixed(2);
-    const cp2y = (p2[1] - (p3[1] - p1[1]) / 6).toFixed(2);
-    d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2[0]},${p2[1]}`;
-  }
-  return d;
-}
+    // Catmull-Rom spline → SVG cubic bezier path
+    function catmullRomPath(pts) {
+        if (!pts || pts.length < 2) return '';
+        if (pts.length === 2) return `M ${pts[0][0]},${pts[0][1]} L ${pts[1][0]},${pts[1][1]}`;
+        let d = `M ${pts[0][0]},${pts[0][1]}`;
+        for (let i = 0; i < pts.length - 1; i++) {
+            const p0 = pts[Math.max(0, i - 1)];
+            const p1 = pts[i];
+            const p2 = pts[i + 1];
+            const p3 = pts[Math.min(pts.length - 1, i + 2)];
+            const cp1x = (p1[0] + (p2[0] - p0[0]) / 6).toFixed(2);
+            const cp1y = (p1[1] + (p2[1] - p0[1]) / 6).toFixed(2);
+            const cp2x = (p2[0] - (p3[0] - p1[0]) / 6).toFixed(2);
+            const cp2y = (p2[1] - (p3[1] - p1[1]) / 6).toFixed(2);
+            d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2[0]},${p2[1]}`;
+        }
+        return d;
+    }
 
-// Shared setup for both elevation SVG builders: smooth, compute min/max, find valid index bounds.
-function _buildElevBase(elevs, elevA, elevB) {
-  elevs = _smoothElevs(elevs);
-  const valid = elevs.filter(e => e != null);
-  if (!valid.length) return null;
-  const allVals = [...valid];
-  if (elevA != null) allVals.push(elevA);
-  if (elevB != null) allVals.push(elevB);
-  const mn = Math.min(...allVals) - 1, mx = Math.max(...allVals) + 1;
-  const firstIdx = elevs.findIndex(e => e != null);
-  const lastIdx  = elevs.length - 1 - [...elevs].reverse().findIndex(e => e != null);
-  return { smoothed: elevs, mn, mx, n: elevs.length, firstIdx, lastIdx };
-}
+    // Shared setup for both elevation SVG builders: smooth, compute min/max, find valid index bounds.
+    function _buildElevBase(elevs, elevA, elevB) {
+        elevs = _smoothElevs(elevs);
+        const valid = elevs.filter(e => e != null);
+        if (!valid.length) return null;
+        const allVals = [...valid];
+        if (elevA != null) allVals.push(elevA);
+        if (elevB != null) allVals.push(elevB);
+        const mn = Math.min(...allVals) - 1, mx = Math.max(...allVals) + 1;
+        const firstIdx = elevs.findIndex(e => e != null);
+        const lastIdx = elevs.length - 1 - [...elevs].reverse().findIndex(e => e != null);
+        return {smoothed: elevs, mn, mx, n: elevs.length, firstIdx, lastIdx};
+    }
 
-function elevProfileSvgCompact(elevs, elevA, elevB) {
-  if (!elevs || !elevs.length) return '';
-  const base = _buildElevBase(elevs, elevA, elevB);
-  if (!base) return '';
-  const { smoothed, mn, mx, n, firstIdx, lastIdx } = base;
-  elevs = smoothed;
-  const W = 200, H = 68, PX = 4, PY = 18;
-  const rng = mx - mn;
-  const sx = i => PX + (i / (n - 1)) * (W - 2 * PX);
-  const sy = e => e != null ? H - PY - ((e - mn) / rng) * (H - 2 * PY) : null;
-  const pts = elevs.map((e, i) => e != null ? [sx(i), sy(e)] : null).filter(Boolean);
-  const sp = catmullRomPath(pts);
-  const fp = sp ? sp + ` L ${sx(lastIdx).toFixed(2)},${H} L ${sx(firstIdx).toFixed(2)},${H} Z` : '';
-  let slackLine = '';
-  if (elevA != null && elevB != null) {
-    const x0 = sx(0).toFixed(2), x1 = sx(n-1).toFixed(2);
-    const y0 = sy(elevA).toFixed(2), y1 = sy(elevB).toFixed(2);
-    slackLine = `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="#b45309" stroke-width="1.8" stroke-dasharray="4 2.5" opacity="0.85"/>` +
-      `<circle cx="${x0}" cy="${y0}" r="2.5" fill="#b45309"/>` +
-      `<circle cx="${x1}" cy="${y1}" r="2.5" fill="#b45309"/>` +
-      `<text x="${x0}" y="${(parseFloat(y0) - 6).toFixed(2)}" text-anchor="middle" font-size="10" fill="#b45309" font-family="system-ui,sans-serif" font-weight="700">${Math.round(elevA)}m</text>` +
-      `<text x="${x1}" y="${(parseFloat(y1) - 6).toFixed(2)}" text-anchor="middle" font-size="10" fill="#b45309" font-family="system-ui,sans-serif" font-weight="700">${Math.round(elevB)}m</text>`;
-  }
-  return `<svg width="${W}" height="${H}" style="display:block;margin-top:5px;border-radius:3px">
+    function elevProfileSvgCompact(elevs, elevA, elevB) {
+        if (!elevs || !elevs.length) return '';
+        const base = _buildElevBase(elevs, elevA, elevB);
+        if (!base) return '';
+        const {smoothed, mn, mx, n, firstIdx, lastIdx} = base;
+        elevs = smoothed;
+        const W = 200, H = 68, PX = 4, PY = 18;
+        const rng = mx - mn;
+        const sx = i => PX + (i / (n - 1)) * (W - 2 * PX);
+        const sy = e => e != null ? H - PY - ((e - mn) / rng) * (H - 2 * PY) : null;
+        const pts = elevs.map((e, i) => e != null ? [sx(i), sy(e)] : null).filter(Boolean);
+        const sp = catmullRomPath(pts);
+        const fp = sp ? sp + ` L ${sx(lastIdx).toFixed(2)},${H} L ${sx(firstIdx).toFixed(2)},${H} Z` : '';
+        let slackLine = '';
+        if (elevA != null && elevB != null) {
+            const x0 = sx(0).toFixed(2), x1 = sx(n - 1).toFixed(2);
+            const y0 = sy(elevA).toFixed(2), y1 = sy(elevB).toFixed(2);
+            slackLine = `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="#b45309" stroke-width="1.8" stroke-dasharray="4 2.5" opacity="0.85"/>` +
+                `<circle cx="${x0}" cy="${y0}" r="2.5" fill="#b45309"/>` +
+                `<circle cx="${x1}" cy="${y1}" r="2.5" fill="#b45309"/>` +
+                `<text x="${x0}" y="${(parseFloat(y0) - 6).toFixed(2)}" text-anchor="middle" font-size="10" fill="#b45309" font-family="system-ui,sans-serif" font-weight="700">${Math.round(elevA)}m</text>` +
+                `<text x="${x1}" y="${(parseFloat(y1) - 6).toFixed(2)}" text-anchor="middle" font-size="10" fill="#b45309" font-family="system-ui,sans-serif" font-weight="700">${Math.round(elevB)}m</text>`;
+        }
+        return `<svg width="${W}" height="${H}" style="display:block;margin-top:5px;border-radius:3px">
     <path d="${fp}" fill="rgba(13,148,136,0.08)"/>
     <path d="${sp}" fill="none" stroke="#0d9488" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
     ${slackLine}</svg>`;
-}
-
-function elevSvg(terrain, elevA, elevB, corridorFeatures, distance_m, W, H) {
-  if (!terrain) return '';
-  const base = _buildElevBase(terrain, elevA, elevB);
-  if (!base) return '';
-  const { smoothed, mn, mx, n, firstIdx, lastIdx } = base;
-  terrain = smoothed;
-  W = W || 292; H = H || 130;
-  const PL = 8, PR = 8, PT = 8, PB = 32;
-  const iW = W - PL - PR, iH = H - PT - PB;
-  const xAxisY = PT + iH;
-  const rng = mx - mn;
-  const px = i => PL + (i / (n - 1)) * iW;
-  const py = e => PT + iH - ((e - mn) / rng) * iH;
-
-  // Grid lines only, no Y-axis labels
-  let grid = '';
-  const niceTicks = _niceTicks(mn + 1, mx - 1, 3);
-  for (const v of niceTicks) {
-    const gy = py(v).toFixed(1);
-    grid += `<line x1="${PL}" y1="${gy}" x2="${W-PR}" y2="${gy}" stroke="rgba(120,90,50,0.2)" stroke-width="1"/>`;
-  }
-
-  // X-axis ticks and labels (~5 ticks, plus full-length mark if gap >= step/2)
-  let xTickMarks = '', xLabels = '';
-  if (distance_m > 0) {
-    const ticks = _niceTicks(0, distance_m);
-    const step  = ticks.length >= 2 ? ticks[1] - ticks[0] : 0;
-    for (const d of ticks) {
-      const tx = (PL + (d / distance_m) * iW).toFixed(1);
-      xTickMarks += `<line x1="${tx}" y1="${xAxisY}" x2="${tx}" y2="${(xAxisY + 3).toFixed(1)}" stroke="rgba(120,90,50,0.45)" stroke-width="1"/>`;
-      xLabels    += `<text x="${tx}" y="${(xAxisY + 12).toFixed(1)}" font-size="9.5" fill="#78716c" text-anchor="${d === 0 ? 'start' : 'middle'}" font-family="system-ui,sans-serif">${d}m</text>`;
     }
-    const last = ticks[ticks.length - 1] ?? 0;
-    if (Math.round(distance_m) !== last && (step === 0 || Math.round(distance_m) - last >= step / 2)) {
-      const tx = (W - PR).toFixed(1);
-      xTickMarks += `<line x1="${tx}" y1="${xAxisY}" x2="${tx}" y2="${(xAxisY + 3).toFixed(1)}" stroke="rgba(120,90,50,0.45)" stroke-width="1"/>`;
-      xLabels    += `<text x="${tx}" y="${(xAxisY + 12).toFixed(1)}" font-size="9.5" fill="#78716c" text-anchor="end" font-family="system-ui,sans-serif">${Math.round(distance_m)}m</text>`;
-    }
-  }
 
-  // Terrain strips — osmlanduse only, same normalization as the strip bar.
-  let strips = '';
-  if (corridorFeatures && corridorFeatures.length) {
-    const luFeats = corridorFeatures.filter(f => f.category === 'osmlanduse');
-    for (const s of _normalizeLanduseSegs(luFeats)) {
-      const x1 = PL + s.t_start * iW;
-      const w  = (s.t_end - s.t_start) * iW;
-      strips += `<rect x="${x1.toFixed(2) + 1}" y="${PT}" width="${Math.max(w, 0).toFixed(2) - 2}" height="${iH}" fill="${s.col}" opacity="0.15"/>`;
-    }
-  }
+    function elevSvg(terrain, elevA, elevB, corridorFeatures, distance_m, W, H) {
+        if (!terrain) return '';
+        const base = _buildElevBase(terrain, elevA, elevB);
+        if (!base) return '';
+        const {smoothed, mn, mx, n, firstIdx, lastIdx} = base;
+        terrain = smoothed;
+        W = W || 292;
+        H = H || 130;
+        const PL = 8, PR = 8, PT = 8, PB = 32;
+        const iW = W - PL - PR, iH = H - PT - PB;
+        const xAxisY = PT + iH;
+        const rng = mx - mn;
+        const px = i => PL + (i / (n - 1)) * iW;
+        const py = e => PT + iH - ((e - mn) / rng) * iH;
 
-  // Smooth profile path
-  const pts = terrain.map((e, i) => e != null ? [px(i), py(e)] : null).filter(Boolean);
-  const sp = catmullRomPath(pts);
-  const fp = sp + ` L ${px(lastIdx).toFixed(2)},${xAxisY.toFixed(2)} L ${px(firstIdx).toFixed(2)},${xAxisY.toFixed(2)} Z`;
+        // Grid lines only, no Y-axis labels
+        let grid = '';
+        const niceTicks = _niceTicks(mn + 1, mx - 1, 3);
+        for (const v of niceTicks) {
+            const gy = py(v).toFixed(1);
+            grid += `<line x1="${PL}" y1="${gy}" x2="${W - PR}" y2="${gy}" stroke="rgba(120,90,50,0.2)" stroke-width="1"/>`;
+        }
 
-  // Slackline with inline elevation labels above anchor circles
-  let slackLine = '';
-  if (elevA != null && elevB != null) {
-    const yA = py(elevA).toFixed(2), yB = py(elevB).toFixed(2);
-    const xA = PL.toFixed(2), xB = (W - PR).toFixed(2);
-    slackLine =
-      `<line x1="${xA}" y1="${yA}" x2="${xB}" y2="${yB}" stroke="#b45309" stroke-width="2" stroke-dasharray="5 3" opacity="0.85"/>` +
-      `<circle cx="${xA}" cy="${yA}" r="3.5" fill="#b45309"/>` +
-      `<circle cx="${xB}" cy="${yB}" r="3.5" fill="#b45309"/>` +
-      `<text x="${(PL + 7).toFixed(1)}" y="${(parseFloat(yA) - 7).toFixed(1)}" font-size="9.5" fill="#b45309" text-anchor="start" font-family="system-ui,sans-serif" font-weight="700">${Math.round(elevA)}m</text>` +
-      `<text x="${(W - PR - 7).toFixed(1)}" y="${(parseFloat(yB) - 7).toFixed(1)}" font-size="9.5" fill="#b45309" text-anchor="end" font-family="system-ui,sans-serif" font-weight="700">${Math.round(elevB)}m</text>`;
-  }
+        // X-axis ticks and labels (~5 ticks, plus full-length mark if gap >= step/2)
+        let xTickMarks = '', xLabels = '';
+        if (distance_m > 0) {
+            const ticks = _niceTicks(0, distance_m);
+            const step = ticks.length >= 2 ? ticks[1] - ticks[0] : 0;
+            for (const d of ticks) {
+                const tx = (PL + (d / distance_m) * iW).toFixed(1);
+                xTickMarks += `<line x1="${tx}" y1="${xAxisY}" x2="${tx}" y2="${(xAxisY + 3).toFixed(1)}" stroke="rgba(120,90,50,0.45)" stroke-width="1"/>`;
+                xLabels += `<text x="${tx}" y="${(xAxisY + 12).toFixed(1)}" font-size="9.5" fill="#78716c" text-anchor="${d === 0 ? 'start' : 'middle'}" font-family="system-ui,sans-serif">${d}m</text>`;
+            }
+            const last = ticks[ticks.length - 1] ?? 0;
+            if (Math.round(distance_m) !== last && (step === 0 || Math.round(distance_m) - last >= step / 2)) {
+                const tx = (W - PR).toFixed(1);
+                xTickMarks += `<line x1="${tx}" y1="${xAxisY}" x2="${tx}" y2="${(xAxisY + 3).toFixed(1)}" stroke="rgba(120,90,50,0.45)" stroke-width="1"/>`;
+                xLabels += `<text x="${tx}" y="${(xAxisY + 12).toFixed(1)}" font-size="9.5" fill="#78716c" text-anchor="end" font-family="system-ui,sans-serif">${Math.round(distance_m)}m</text>`;
+            }
+        }
 
-  // Interactive cursor group (hidden until hover)
-  const cursor = `<g class="elev-cursor" display="none">
+        // Terrain strips — osmlanduse only, same normalization as the strip bar.
+        let strips = '';
+        if (corridorFeatures && corridorFeatures.length) {
+            const luFeats = corridorFeatures.filter(f => f.category === 'osmlanduse');
+            for (const s of _normalizeLanduseSegs(luFeats)) {
+                const x1 = PL + s.t_start * iW;
+                const w = (s.t_end - s.t_start) * iW;
+                strips += `<rect x="${x1.toFixed(2) + 1}" y="${PT}" width="${Math.max(w, 0).toFixed(2) - 2}" height="${iH}" fill="${s.col}" opacity="0.15"/>`;
+            }
+        }
+
+        // Smooth profile path
+        const pts = terrain.map((e, i) => e != null ? [px(i), py(e)] : null).filter(Boolean);
+        const sp = catmullRomPath(pts);
+        const fp = sp + ` L ${px(lastIdx).toFixed(2)},${xAxisY.toFixed(2)} L ${px(firstIdx).toFixed(2)},${xAxisY.toFixed(2)} Z`;
+
+        // Slackline with inline elevation labels above anchor circles
+        let slackLine = '';
+        if (elevA != null && elevB != null) {
+            const yA = py(elevA).toFixed(2), yB = py(elevB).toFixed(2);
+            const xA = PL.toFixed(2), xB = (W - PR).toFixed(2);
+            slackLine =
+                `<line x1="${xA}" y1="${yA}" x2="${xB}" y2="${yB}" stroke="#b45309" stroke-width="2" stroke-dasharray="5 3" opacity="0.85"/>` +
+                `<circle cx="${xA}" cy="${yA}" r="3.5" fill="#b45309"/>` +
+                `<circle cx="${xB}" cy="${yB}" r="3.5" fill="#b45309"/>` +
+                `<text x="${(PL + 7).toFixed(1)}" y="${(parseFloat(yA) - 7).toFixed(1)}" font-size="9.5" fill="#b45309" text-anchor="start" font-family="system-ui,sans-serif" font-weight="700">${Math.round(elevA)}m</text>` +
+                `<text x="${(W - PR - 7).toFixed(1)}" y="${(parseFloat(yB) - 7).toFixed(1)}" font-size="9.5" fill="#b45309" text-anchor="end" font-family="system-ui,sans-serif" font-weight="700">${Math.round(elevB)}m</text>`;
+        }
+
+        // Interactive cursor group (hidden until hover)
+        const cursor = `<g class="elev-cursor" display="none">
     <line class="elev-cursor-line" x1="${PL}" y1="${PT}" x2="${PL}" y2="${xAxisY}" stroke="rgba(180,140,90,0.5)" stroke-width="1" stroke-dasharray="3 2"/>
-    <circle class="elev-cursor-dot" cx="${PL}" cy="${PT + iH/2}" r="3.5" fill="#b45309" stroke="rgba(250,246,240,0.9)" stroke-width="1.5"/>
+    <circle class="elev-cursor-dot" cx="${PL}" cy="${PT + iH / 2}" r="3.5" fill="#b45309" stroke="rgba(250,246,240,0.9)" stroke-width="1.5"/>
   </g>`;
 
-  // Catenary overlay (populated dynamically on hover)
-  const tY = (xAxisY + 20).toFixed(0);
-  const catOverlay =
-    `<polyline id="cat-locus" points="" fill="none" stroke="#ff6b35" stroke-width="1.5" stroke-dasharray="3 2" opacity="0.45"/>` +
-    `<polyline id="cat-line" points="" fill="none" stroke="#ff6b35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>` +
-    `<circle id="cat-walker" cx="-100" cy="-100" r="4" fill="#ff6b35" stroke="rgba(250,246,240,0.9)" stroke-width="1.5"/>` +
-    `<text id="cat-tension" x="${PL}" y="${tY}" font-size="9" fill="#a8a29e" font-family="system-ui,sans-serif"></text>`;
+        // Catenary overlay (populated dynamically on hover)
+        const tY = (xAxisY + 20).toFixed(0);
+        const catOverlay =
+            `<polyline id="cat-locus" points="" fill="none" stroke="#ff6b35" stroke-width="1.5" stroke-dasharray="3 2" opacity="0.45"/>` +
+            `<polyline id="cat-line" points="" fill="none" stroke="#ff6b35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>` +
+            `<circle id="cat-walker" cx="-100" cy="-100" r="4" fill="#ff6b35" stroke="rgba(250,246,240,0.9)" stroke-width="1.5"/>` +
+            `<text id="cat-tension" x="${PL}" y="${tY}" font-size="9" fill="#a8a29e" font-family="system-ui,sans-serif"></text>`;
 
-  // Transparent mouse-capture rect
-  const overlay = `<rect class="elev-overlay" x="${PL}" y="${PT}" width="${iW}" height="${iH}" fill="transparent" style="cursor:crosshair"/>`;
+        // Transparent mouse-capture rect
+        const overlay = `<rect class="elev-overlay" x="${PL}" y="${PT}" width="${iW}" height="${iH}" fill="transparent" style="cursor:crosshair"/>`;
 
-  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"
+        return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"
     data-elev="1" data-pl="${PL}" data-pr="${PR}" data-pt="${PT}" data-pb="${PB}"
     data-iw="${iW}" data-ih="${iH}" data-mn="${mn}" data-mx="${mx}" data-n="${n}" data-dist="${distance_m}"
     style="display:block;width:100%;border-radius:4px;overflow:hidden">
@@ -1581,184 +2215,187 @@ function elevSvg(terrain, elevA, elevB, corridorFeatures, distance_m, W, H) {
     <path d="${sp}" fill="none" stroke="#0d9488" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
     ${slackLine}
     ${catOverlay}
-    <line x1="${PL}" y1="${xAxisY}" x2="${W-PR}" y2="${xAxisY}" stroke="rgba(120,90,50,0.4)" stroke-width="1"/>
+    <line x1="${PL}" y1="${xAxisY}" x2="${W - PR}" y2="${xAxisY}" stroke="rgba(120,90,50,0.4)" stroke-width="1"/>
     ${xTickMarks}${xLabels}
     ${cursor}${overlay}
   </svg>`;
-}
-
-
-function buildTooltip(p) {
-  const rise = (p.elev_b != null && p.elev_a != null) ? (p.elev_b - p.elev_a) : 0;
-  const dir  = p.slope_deg != null ? (rise > 0.5 ? '↗' : rise < -0.5 ? '↘' : '→') : '';
-  const sdeg = p.slope_deg != null ? ` <span style="font-size:10px;font-weight:400;color:#78716c">${dir}${p.slope_deg}°</span>` : '';
-  const svg  = elevProfileSvgCompact(p.terrain_elevs, p.elev_a, p.elev_b);
-  return `<div class="tip-dist">${p.distance_m} m${sdeg}</div>${svg ? svg : ''}`;
-}
-
-function buildSelectedTooltip(p, t) {
-  const distFromA = Math.round(p.distance_m * t);
-  const total     = Math.round(p.distance_m);
-  const distPart  = `${distFromA}m <span style="font-weight:400">/ ${total}m</span>`;
-  const at = featuresAtT(p.corridor_features, t);
-  const terrainPart = at.length
-    ? `<span style="font-weight:400;color:#78716c">&ensp;${_escXml(featureLabel(at[0]))}</span>`
-    : '';
-  return `<div class="tip-dist">${distPart}${terrainPart}</div>`;
-}
-
-// Collect and sort osmlanduse segments. Backend already produces tiling,
-// non-overlapping segments, so no gap-closing or merging is needed here.
-function _normalizeLanduseSegs(landuseFeats) {
-  const segs = [];
-  for (const f of landuseFeats) {
-    const col   = featureColor(f);
-    const label = _formatTag(f.label || f.category || '');
-    for (const s of (f.segments || []))
-      segs.push({ t_start: s.t_start, t_end: s.t_end, col, label });
-  }
-  return segs.sort((a, b) => a.t_start - b.t_start);
-}
-
-// Render a single combined strip bar for all osmlanduse segments + a color legend below.
-function _buildLanduseStrip(landuseFeats) {
-  if (!landuseFeats.length) return '';
-
-  const segments = _normalizeLanduseSegs(landuseFeats);
-  if (!segments.length) return '';
-
-  // Legend — derived from surviving segments in appearance order.
-  const legendOrder = [];
-  const legendSeen = new Map();
-  for (const s of segments) {
-    if (!legendSeen.has(s.label)) { legendSeen.set(s.label, s.col); legendOrder.push([s.label, s.col]); }
-  }
-
-  // Use left + right (both from t values directly) so the two edges of every
-  // segment are each computed independently — no additive precision loss.
-  const _n = segments.length;
-  const fills = segments.map((s, i) => {
-    const left  = (s.t_start * 100).toFixed(3);
-    const right = ((1 - s.t_end) * 100).toFixed(3);
-    const leftVal  = i > 0      ? `calc(${left}% + 1px)`  : `${left}%`;
-    const rightVal = i < _n - 1 ? `calc(${right}% + 1px)` : `${right}%`;
-    return `<div title="${_escXml(s.label)}" style="position:absolute;left:${leftVal};right:${rightVal};height:100%;background:${s.col}"></div>`;
-  }).join('');
-
-  const strip = `<div style="position:relative;height:7px;background:rgba(180,140,90,0.13);border-radius:3px;overflow:hidden;margin:3px 0 4px">${fills}</div>`;
-
-  const legendItems = legendOrder.map(([label, col]) =>
-    `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:7px;white-space:nowrap">` +
-    `<span style="display:inline-block;width:7px;height:7px;border-radius:1px;background:${col};flex-shrink:0"></span>` +
-    `<span style="font-size:9px;color:#57534e">${_escXml(label)}</span></span>`
-  ).join('');
-  const legend = `<div style="display:flex;flex-wrap:wrap;gap:1px 0;margin-top:1px">${legendItems}</div>`;
-
-  return `<div style="margin-bottom:5px">` +
-    `<div style="font-size:9px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#a8a29e;margin-bottom:2px">Land use</div>` +
-    strip + legend + `</div>`;
-}
-
-function buildCorridorFeatureList(feats) {
-  if (!feats || !feats.length) return '';
-
-  // Split into osmlanduse vs overpass features
-  const landuseRaw = feats.filter(f => f.category === 'osmlanduse');
-  const overpassRaw = feats.filter(f => f.category !== 'osmlanduse');
-
-  // ── Overpass: aggregate duplicates by (category, label), render one row each ──
-  let overpassHtml = '';
-  if (overpassRaw.length) {
-    const merged = [];
-    const mergeKey = f => `${f.category}|${featureLabel(f)}`;
-    const seen = new Map();
-    for (const f of overpassRaw) {
-      const k = mergeKey(f);
-      if (seen.has(k)) {
-        const m = merged[seen.get(k)];
-        for (const s of (f.segments || [])) m.segments.push(s);
-      } else {
-        seen.set(k, merged.length);
-        merged.push({ ...f, segments: [...(f.segments || [])] });
-      }
     }
 
-    let rows = '';
-    for (const f of merged) {
-      const col      = featureColor(f);
-      const segsArr  = (f.segments || []).slice().sort((a, b) => a.t_start - b.t_start);
-      const flagBlocker = f.is_blocker ? '<span style="color:#dc2626;font-size:9px;margin-left:4px">blocker</span>' : '';
-      const flagWater   = f.is_water   ? '<span style="color:#0369a1;font-size:9px;margin-left:4px">water</span>'   : '';
 
-      let barHtml = '';
-      if (segsArr.length) {
-        const _m = segsArr.length;
-        const fills = segsArr.map((s, i) => {
-          const barX = (s.t_start * 100).toFixed(1);
-          const barW = Math.max((s.t_end - s.t_start) * 100, 0.5).toFixed(1);
-          const xVal = i > 0      ? `calc(${barX}% + 1px)` : `${barX}%`;
-          const wAdj = (i > 0 ? 1 : 0) + (i < _m - 1 ? 1 : 0);
-          const wVal = wAdj > 0   ? `calc(${barW}% - ${wAdj}px)` : `${barW}%`;
-          return `<div style="position:absolute;left:${xVal};width:${wVal};height:100%;background:${col};border-radius:2px"></div>`;
+    function buildTooltip(p) {
+        const rise = (p.elev_b != null && p.elev_a != null) ? (p.elev_b - p.elev_a) : 0;
+        const dir = p.slope_deg != null ? (rise > 0.5 ? '↗' : rise < -0.5 ? '↘' : '→') : '';
+        const sdeg = p.slope_deg != null ? ` <span style="font-size:10px;font-weight:400;color:#78716c">${dir}${p.slope_deg}°</span>` : '';
+        const svg = elevProfileSvgCompact(p.terrain_elevs, p.elev_a, p.elev_b);
+        return `<div class="tip-dist">${p.distance_m} m${sdeg}</div>${svg ? svg : ''}`;
+    }
+
+    function buildSelectedTooltip(p, t) {
+        const distFromA = Math.round(p.distance_m * t);
+        const total = Math.round(p.distance_m);
+        const distPart = `${distFromA}m <span style="font-weight:400">/ ${total}m</span>`;
+        const at = featuresAtT(p.corridor_features, t);
+        const terrainPart = at.length
+            ? `<span style="font-weight:400;color:#78716c">&ensp;${_escXml(featureLabel(at[0]))}</span>`
+            : '';
+        return `<div class="tip-dist">${distPart}${terrainPart}</div>`;
+    }
+
+    // Collect and sort osmlanduse segments. Backend already produces tiling,
+    // non-overlapping segments, so no gap-closing or merging is needed here.
+    function _normalizeLanduseSegs(landuseFeats) {
+        const segs = [];
+        for (const f of landuseFeats) {
+            const col = featureColor(f);
+            const label = _formatTag(f.label || f.category || '');
+            for (const s of (f.segments || []))
+                segs.push({t_start: s.t_start, t_end: s.t_end, col, label});
+        }
+        return segs.sort((a, b) => a.t_start - b.t_start);
+    }
+
+    // Render a single combined strip bar for all osmlanduse segments + a color legend below.
+    function _buildLanduseStrip(landuseFeats) {
+        if (!landuseFeats.length) return '';
+
+        const segments = _normalizeLanduseSegs(landuseFeats);
+        if (!segments.length) return '';
+
+        // Legend — derived from surviving segments in appearance order.
+        const legendOrder = [];
+        const legendSeen = new Map();
+        for (const s of segments) {
+            if (!legendSeen.has(s.label)) {
+                legendSeen.set(s.label, s.col);
+                legendOrder.push([s.label, s.col]);
+            }
+        }
+
+        // Use left + right (both from t values directly) so the two edges of every
+        // segment are each computed independently — no additive precision loss.
+        const _n = segments.length;
+        const fills = segments.map((s, i) => {
+            const left = (s.t_start * 100).toFixed(3);
+            const right = ((1 - s.t_end) * 100).toFixed(3);
+            const leftVal = i > 0 ? `calc(${left}% + 1px)` : `${left}%`;
+            const rightVal = i < _n - 1 ? `calc(${right}% + 1px)` : `${right}%`;
+            return `<div title="${_escXml(s.label)}" style="position:absolute;left:${leftVal};right:${rightVal};height:100%;background:${s.col}"></div>`;
         }).join('');
-        barHtml = `<div style="margin-top:2px;position:relative;height:5px;background:rgba(180,140,90,0.15);border-radius:2px;overflow:hidden">${fills}</div>`;
-      }
 
-      const valuePart = f.label ? _escXml(_formatTag(f.label)) : _escXml(f.category || '');
-      const namePart  = f.label && f.name ? `<span style="font-weight:400">: ${_escXml(f.name)}</span>` : '';
-      const keyPart   = f.label ? `<span style="color:#a8a29e;font-weight:400;font-size:9px;margin-left:4px">${_escXml(f.category||'')}</span>` : '';
-      rows += `<div style="margin-bottom:5px">` +
-        `<div style="font-size:10px;font-weight:600;color:${col}">${valuePart}${namePart}${keyPart}` +
-        flagBlocker + flagWater + `</div>` +
-        barHtml + `</div>`;
+        const strip = `<div style="position:relative;height:7px;background:rgba(180,140,90,0.13);border-radius:3px;overflow:hidden;margin:3px 0 4px">${fills}</div>`;
+
+        const legendItems = legendOrder.map(([label, col]) =>
+            `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:7px;white-space:nowrap">` +
+            `<span style="display:inline-block;width:7px;height:7px;border-radius:1px;background:${col};flex-shrink:0"></span>` +
+            `<span style="font-size:9px;color:#57534e">${_escXml(label)}</span></span>`
+        ).join('');
+        const legend = `<div style="display:flex;flex-wrap:wrap;gap:1px 0;margin-top:1px">${legendItems}</div>`;
+
+        return `<div style="margin-bottom:5px">` +
+            `<div style="font-size:9px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#a8a29e;margin-bottom:2px">Land use</div>` +
+            strip + legend + `</div>`;
     }
-    overpassHtml = rows;
-  }
 
-  // ── osmlanduse: single merged strip + legend ──
-  const landuseHtml = _buildLanduseStrip(landuseRaw);
+    function buildCorridorFeatureList(feats) {
+        if (!feats || !feats.length) return '';
 
-  const inner = (overpassHtml ? `<div style="margin-bottom:${landuseHtml ? 7 : 0}px">${overpassHtml}</div>` : '') +
-                landuseHtml;
+        // Split into osmlanduse vs overpass features
+        const landuseRaw = feats.filter(f => f.category === 'osmlanduse');
+        const overpassRaw = feats.filter(f => f.category !== 'osmlanduse');
 
-  return `<div style="margin-top:4px;padding:7px 8px;background:rgba(0,0,0,0.03);border-radius:5px;border:1px solid rgba(180,140,90,0.15)">${inner}</div>`;
-}
+        // ── Overpass: aggregate duplicates by (category, label), render one row each ──
+        let overpassHtml = '';
+        if (overpassRaw.length) {
+            const merged = [];
+            const mergeKey = f => `${f.category}|${featureLabel(f)}`;
+            const seen = new Map();
+            for (const f of overpassRaw) {
+                const k = mergeKey(f);
+                if (seen.has(k)) {
+                    const m = merged[seen.get(k)];
+                    for (const s of (f.segments || [])) m.segments.push(s);
+                } else {
+                    seen.set(k, merged.length);
+                    merged.push({...f, segments: [...(f.segments || [])]});
+                }
+            }
 
-function buildDetailHtml(p, coords) {
-  const water = p.over_water ? '<span class="water-tag">Water crossing</span>' : '';
+            let rows = '';
+            for (const f of merged) {
+                const col = featureColor(f);
+                const segsArr = (f.segments || []).slice().sort((a, b) => a.t_start - b.t_start);
+                const flagBlocker = f.is_blocker ? '<span style="color:#dc2626;font-size:9px;margin-left:4px">blocker</span>' : '';
+                const flagWater = f.is_water ? '<span style="color:#0369a1;font-size:9px;margin-left:4px">water</span>' : '';
 
-  let bearingHtml = '', copyA = '', copyB = '';
-  if (coords && coords.length >= 2) {
-    const [[lonA, latA], [lonB, latB]] = coords;
-    const deg = computeBearing(lonA, latA, lonB, latB);
-    bearingHtml = `<div style="display:flex;align-items:center;gap:5px;margin:3px 0 6px;font-size:12px;color:#78716c">
+                let barHtml = '';
+                if (segsArr.length) {
+                    const _m = segsArr.length;
+                    const fills = segsArr.map((s, i) => {
+                        const barX = (s.t_start * 100).toFixed(1);
+                        const barW = Math.max((s.t_end - s.t_start) * 100, 0.5).toFixed(1);
+                        const xVal = i > 0 ? `calc(${barX}% + 1px)` : `${barX}%`;
+                        const wAdj = (i > 0 ? 1 : 0) + (i < _m - 1 ? 1 : 0);
+                        const wVal = wAdj > 0 ? `calc(${barW}% - ${wAdj}px)` : `${barW}%`;
+                        return `<div style="position:absolute;left:${xVal};width:${wVal};height:100%;background:${col};border-radius:2px"></div>`;
+                    }).join('');
+                    barHtml = `<div style="margin-top:2px;position:relative;height:5px;background:rgba(180,140,90,0.15);border-radius:2px;overflow:hidden">${fills}</div>`;
+                }
+
+                const valuePart = f.label ? _escXml(_formatTag(f.label)) : _escXml(f.category || '');
+                const namePart = f.label && f.name ? `<span style="font-weight:400">: ${_escXml(f.name)}</span>` : '';
+                const keyPart = f.label ? `<span style="color:#a8a29e;font-weight:400;font-size:9px;margin-left:4px">${_escXml(f.category || '')}</span>` : '';
+                rows += `<div style="margin-bottom:5px">` +
+                    `<div style="font-size:10px;font-weight:600;color:${col}">${valuePart}${namePart}${keyPart}` +
+                    flagBlocker + flagWater + `</div>` +
+                    barHtml + `</div>`;
+            }
+            overpassHtml = rows;
+        }
+
+        // ── osmlanduse: single merged strip + legend ──
+        const landuseHtml = _buildLanduseStrip(landuseRaw);
+
+        const inner = (overpassHtml ? `<div style="margin-bottom:${landuseHtml ? 7 : 0}px">${overpassHtml}</div>` : '') +
+            landuseHtml;
+
+        return `<div style="margin-top:4px;padding:7px 8px;background:rgba(0,0,0,0.03);border-radius:5px;border:1px solid rgba(180,140,90,0.15)">${inner}</div>`;
+    }
+
+    function buildDetailHtml(p, coords) {
+        const water = p.over_water ? '<span class="water-tag">Water crossing</span>' : '';
+
+        let bearingHtml = '', copyA = '', copyB = '';
+        if (coords && coords.length >= 2) {
+            const [[lonA, latA], [lonB, latB]] = coords;
+            const deg = computeBearing(lonA, latA, lonB, latB);
+            bearingHtml = `<div style="display:flex;align-items:center;gap:5px;margin:3px 0 6px;font-size:12px;color:#78716c">
       ${compassSvg(deg)}
       <span><b style="color:#292524">${Math.round(deg)}°</b> ${cardinal(deg)}</span>
     </div>`;
-    copyA = `<button class="copy-btn" onclick="copyCoords('${latA.toFixed(6)},${lonA.toFixed(6)}',this)">Copy</button>`;
-    copyB = `<button class="copy-btn" onclick="copyCoords('${latB.toFixed(6)},${lonB.toFixed(6)}',this)">Copy</button>`;
-  }
+            copyA = `<button class="copy-btn" onclick="copyCoords('${latA.toFixed(6)},${lonA.toFixed(6)}',this)">Copy</button>`;
+            copyB = `<button class="copy-btn" onclick="copyCoords('${latB.toFixed(6)},${lonB.toFixed(6)}',this)">Copy</button>`;
+        }
 
-  const rise = (p.elev_b != null && p.elev_a != null) ? (p.elev_b - p.elev_a) : 0;
-  const sDir = p.slope_deg != null ? (rise > 0.5 ? '↗' : rise < -0.5 ? '↘' : '→') : '';
-  const slopeSuffix = p.slope_deg != null
-    ? ` <span style="font-size:12px;font-weight:400;color:#78716c">${sDir}${p.slope_deg}°</span>`
-    : '';
-  const feats = p.corridor_features || [];
-  const corridorFeats = feats.filter(f => !_PLACE_CATS.has(f.category));
-  const placeFeats    = feats.filter(f =>  _PLACE_CATS.has(f.category));
-  const _collapseCard = (title, list, open) => {
-    if (!list.length) return '';
-    const openAttr = open ? ' open' : '';
-    return `<details${openAttr} style="margin-top:8px;border-top:1px solid rgba(180,140,90,0.15);padding-top:7px">` +
-      `<summary style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#a8a29e;margin-bottom:4px;cursor:pointer;list-style:none;-webkit-appearance:none">` +
-      `<i class="sl-chev">›</i>` + title + `</summary>` +
-      buildCorridorFeatureList(list) + `</details>`;
-  };
-  const corridorSection = _collapseCard('In corridor', corridorFeats, true) +
-                          _collapseCard('Places', placeFeats, false);
+        const rise = (p.elev_b != null && p.elev_a != null) ? (p.elev_b - p.elev_a) : 0;
+        const sDir = p.slope_deg != null ? (rise > 0.5 ? '↗' : rise < -0.5 ? '↘' : '→') : '';
+        const slopeSuffix = p.slope_deg != null
+            ? ` <span style="font-size:12px;font-weight:400;color:#78716c">${sDir}${p.slope_deg}°</span>`
+            : '';
+        const feats = p.corridor_features || [];
+        const corridorFeats = feats.filter(f => !_PLACE_CATS.has(f.category));
+        const placeFeats = feats.filter(f => _PLACE_CATS.has(f.category));
+        const _collapseCard = (title, list, open) => {
+            if (!list.length) return '';
+            const openAttr = open ? ' open' : '';
+            return `<details${openAttr} style="margin-top:8px;border-top:1px solid rgba(180,140,90,0.15);padding-top:7px">` +
+                `<summary style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#a8a29e;margin-bottom:4px;cursor:pointer;list-style:none;-webkit-appearance:none">` +
+                `<i class="sl-chev">›</i>` + title + `</summary>` +
+                buildCorridorFeatureList(list) + `</details>`;
+        };
+        const corridorSection = _collapseCard('In corridor', corridorFeats, true) +
+            _collapseCard('Places', placeFeats, false);
 
-  return `<div class="sl-detail">
+        return `<div class="sl-detail">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:2px">
       <div>
         <div class="dist">${water}${p.distance_m} m${slopeSuffix}</div>
@@ -1772,312 +2409,339 @@ function buildDetailHtml(p, coords) {
     ${anchorCard('Anchor A', p.anchor_a_id, p.anchor_a_kind, p.anchor_a_tags, copyA, p.anchor_a_terrain)}
     ${anchorCard('Anchor B', p.anchor_b_id, p.anchor_b_kind, p.anchor_b_tags, copyB, p.anchor_b_terrain)}
   </div>`;
-}
-
-// ── Legend ───────────────────────────────────────────────────────────────────
-function _fillBar(canvasId, colorFn) {
-  const canvas = document.getElementById(canvasId);
-  const w = canvas.offsetWidth || 160;
-  canvas.width = w;
-  const ctx = canvas.getContext('2d');
-  for (let x = 0; x < w; x++) {
-    ctx.fillStyle = colorFn(x / (w - 1));
-    ctx.fillRect(x, 0, 1, canvas.height);
-  }
-}
-function drawLegend(minM, maxM) {
-  document.getElementById('legend').style.display = 'block';
-  document.getElementById('leg-min').textContent = minM + ' m';
-  document.getElementById('leg-max').textContent = maxM + ' m';
-  _fillBar('legend-bar', cmapColor);
-}
-function showSlopeLegend(visible) {
-  document.getElementById('slope-legend').style.display = visible ? 'block' : 'none';
-  if (!visible) return;
-  const { min, max } = _slopeStats;
-  _fillBar('slope-bar', x => slopeColor((min + x * (max - min)) / MAX_SLOPE_DEG));
-  document.getElementById('slope-leg-min').textContent = min.toFixed(1) + '°';
-  document.getElementById('slope-leg-max').textContent = max.toFixed(1) + '°';
-}
-
-// ── Status / progress ────────────────────────────────────────────────────────
-function setStatus(msg) {
-  const el = document.getElementById('status');
-  el.textContent = msg;
-  let state = 'idle';
-  if (msg.startsWith('Error:')) state = 'error';
-  else if (/\d+ pairs? found/.test(msg)) state = 'done';
-  else if (msg.includes('Area selected')) state = 'ready';
-  else if (msg.includes('too large') || msg.includes('must be less')) state = 'error';
-  else if (msg.includes('Draw') || msg.includes('first')) state = 'idle';
-  el.dataset.state = state;
-}
-
-const _PHASES = [3, 35, 45, 55, 63, 75, 100];
-const _tween  = { current: 0, target: 0, raf: null };
-
-function _tweenTick() {
-  const gap = _tween.target - _tween.current;
-  if (gap < 0.05) return;
-  _tween.current += gap * 0.015;
-  document.getElementById('progress-bar').style.width = _tween.current.toFixed(2) + '%';
-  _tween.raf = requestAnimationFrame(_tweenTick);
-}
-function setProgress(pct) {
-  if (_tween.raf) { cancelAnimationFrame(_tween.raf); _tween.raf = null; }
-  const bar = document.getElementById('progress-bar');
-  bar.style.opacity = '1'; bar.style.transition = 'none'; bar.style.width = pct + '%';
-  _tween.current = pct;
-  const next = _PHASES.find(p => p > pct);
-  _tween.target = next != null ? next - 0.5 : pct;
-  if (_tween.target > pct) _tween.raf = requestAnimationFrame(_tweenTick);
-}
-// ── Elastic catenary physics ──────────────────────────────────────────────────
-
-// Elastic catenary position at natural arc-length s from start.
-// H = horizontal tension (N), V = upward reaction at s=0 (N),
-// w = weight per unit natural length (N/m), EA = axial stiffness (N).
-function _catAt(H, V, s, w, EA) {
-  if (s === 0) return { x: 0, y: 0 };
-  const T0 = Math.hypot(H, V);
-  const Vs = V - w * s;
-  const Ts = Math.hypot(H, Vs);
-  return {
-    x: H * s / EA + H / w * (Math.asinh(V / H) - Math.asinh(Vs / H)),
-    y: (V * s - w * s * s / 2) / EA + (T0 - Ts) / w,
-  };
-}
-
-// 2×2 Newton–Raphson. f(x,y) returns [r1,r2]. Returns [x,y] or null.
-function _nr2(f, x0, y0) {
-  let [x, y] = [x0, y0];
-  const d = 1e-6, eps = 1e-7;
-  for (let i = 0; i < 60; i++) {
-    const r = f(x, y);
-    if (Math.abs(r[0]) < eps && Math.abs(r[1]) < eps) return [x, y];
-    const rx = f(x + d, y), ry = f(x, y + d);
-    const J11 = (rx[0] - r[0]) / d, J12 = (ry[0] - r[0]) / d;
-    const J21 = (rx[1] - r[1]) / d, J22 = (ry[1] - r[1]) / d;
-    const det = J11 * J22 - J12 * J21;
-    if (Math.abs(det) < 1e-14) return null;
-    x -= (J22 * r[0] - J12 * r[1]) / det;
-    y -= (J11 * r[1] - J21 * r[0]) / det;
-  }
-  return null;
-}
-
-// 3×3 Newton–Raphson. f(x,y,z) returns [r1,r2,r3]. Returns [x,y,z] or null.
-function _nr3(f, x0, y0, z0) {
-  let [x, y, z] = [x0, y0, z0];
-  const d = 1e-6, eps = 1e-7;
-  for (let i = 0; i < 80; i++) {
-    const r = f(x, y, z);
-    if (r.every(v => Math.abs(v) < eps)) return [x, y, z];
-    const rx = f(x+d,y,z), ry = f(x,y+d,z), rz = f(x,y,z+d);
-    const [a,b,c]   = [(rx[0]-r[0])/d, (ry[0]-r[0])/d, (rz[0]-r[0])/d];
-    const [dd,e,ff] = [(rx[1]-r[1])/d, (ry[1]-r[1])/d, (rz[1]-r[1])/d];
-    const [g,hh,k]  = [(rx[2]-r[2])/d, (ry[2]-r[2])/d, (rz[2]-r[2])/d];
-    const det = a*(e*k-ff*hh) - b*(dd*k-ff*g) + c*(dd*hh-e*g);
-    if (Math.abs(det) < 1e-14) return null;
-    const inv = [
-      [(e*k-ff*hh)/det,  -(b*k-c*hh)/det,   (b*ff-c*e)/det],
-      [-(dd*k-ff*g)/det,  (a*k-c*g)/det,   -(a*ff-c*dd)/det],
-      [(dd*hh-e*g)/det,  -(a*hh-b*g)/det,   (a*e-b*dd)/det],
-    ];
-    const dr = inv.map(row => row[0]*r[0] + row[1]*r[1] + row[2]*r[2]);
-    x -= dr[0]; y -= dr[1]; z -= dr[2];
-  }
-  return null;
-}
-
-// Find natural length L0 and vertical reaction V0 for an unloaded catenary
-// spanning (0,0)→(span,rise) with horizontal tension H0.
-function _solveUnloaded(span, rise, H0, w, EA) {
-  const Lgeom = Math.hypot(span, rise);
-  const r = _nr2(
-    (V, L) => {
-      if (L <= 0 || H0 <= 0) return [1e9, 1e9];
-      const e = _catAt(H0, V, L, w, EA);
-      return [e.x - span, e.y - rise];
-    },
-    H0 * rise / span + w * Lgeom * 0.5,
-    Lgeom * (1 - H0 / EA),
-  );
-  return r ? { V0: r[0], L0: r[1] } : null;
-}
-
-// Solve two coupled elastic catenaries with walker at horizontal position xw (m).
-// d = span, h = rise (elev_b − elev_a), L0 = natural length, W = walker load (N).
-// Returns { pts[21], walkerPt, TA, TB } or null.
-function _solveLoaded(d, h, L0, w, EA, xw, W, H0) {
-  if (xw < 0.02 * d || xw > 0.98 * d) return null;
-  const L1i = L0 * (xw / d);
-  const Hi  = H0 || 2000;
-  // Taut-string approximation: rope slopes downward from A to walker → V1 is negative for level/near-level spans
-  const V1i = Hi * h / d - W * (d - xw) / d;
-  const res = _nr3(
-    (H, V1, L1) => {
-      if (H < 1 || L1 < 0.005 * L0 || L1 > 0.995 * L0) return [1e9, 1e9, 1e9];
-      const L2 = L0 - L1, V2 = V1 - w * L1 + W;
-      const e1 = _catAt(H, V1, L1, w, EA);
-      const e2 = _catAt(H, V2, L2, w, EA);
-      return [e1.x - xw, e2.x - (d - xw), e1.y + e2.y - h];
-    },
-    Hi, V1i, L1i,
-  );
-  if (!res) return null;
-  const [H, V1, L1] = res;
-  if (H < 0 || L1 <= 0 || L1 >= L0) return null;
-  const L2 = L0 - L1, V2 = V1 - w * L1 + W;
-  const walkerPt = _catAt(H, V1, L1, w, EA);
-
-  // Sample at every 5% of natural length (21 points)
-  const pts = [];
-  for (let i = 0; i <= 20; i++) {
-    const s = (i / 20) * L0;
-    if (s <= L1) {
-      pts.push(_catAt(H, V1, s, w, EA));
-    } else {
-      const p2 = _catAt(H, V2, s - L1, w, EA);
-      pts.push({ x: walkerPt.x + p2.x, y: walkerPt.y + p2.y });
     }
-  }
-  return { pts, walkerPt, TA: Math.hypot(H, V1), TB: Math.hypot(H, V2 - w * L2) };
-}
 
-// Read current line params from toolbar inputs.
-function _getLineParams() {
-  const preset = document.getElementById('linePreset')?.value || 'tubular25';
-  const { EA, w } = preset === 'custom'
-    ? { EA: +(document.getElementById('lineEA')?.value) || LINE_PRESETS.tubular25.EA,
-        w:  +(document.getElementById('lineW')?.value)  || LINE_PRESETS.tubular25.w }
-    : (LINE_PRESETS[preset] || LINE_PRESETS.tubular25);
-  const H0 = +(document.getElementById('preTension')?.value) || 2000;
-  const W  = (+(document.getElementById('walkerKg')?.value) || 80) * GRAVITY;
-  return { EA, w, H0, W };
-}
+    // ── Legend ───────────────────────────────────────────────────────────────────
+    function _fillBar(canvasId, colorFn) {
+        const canvas = document.getElementById(canvasId);
+        const w = canvas.offsetWidth || 160;
+        canvas.width = w;
+        const ctx = canvas.getContext('2d');
+        for (let x = 0; x < w; x++) {
+            ctx.fillStyle = colorFn(x / (w - 1));
+            ctx.fillRect(x, 0, 1, canvas.height);
+        }
+    }
 
-// Clear catenary overlay elements in the open SVG.
-function _clearCatenary(svg) {
-  svg = svg || document.querySelector('#detail-content svg[data-elev]');
-  if (!svg) return;
-  svg.querySelector('#cat-locus')?.setAttribute('points', '');
-  svg.querySelector('#cat-line')?.setAttribute('points', '');
-  const cw = svg.querySelector('#cat-walker');
-  if (cw) { cw.setAttribute('cx', '-100'); cw.setAttribute('cy', '-100'); }
-  const ct = svg.querySelector('#cat-tension');
-  if (ct) ct.textContent = '';
-}
+    function drawLegend(minM, maxM) {
+        document.getElementById('legend').style.display = 'block';
+        document.getElementById('leg-min').textContent = minM + ' m';
+        document.getElementById('leg-max').textContent = maxM + ' m';
+        _fillBar('legend-bar', cmapColor);
+    }
 
-// Draw the walker-position locus: sample 25 walker positions across the span,
-// plot where the walker's foot would be for each position.
-function _drawLocus(svg, d, h, elevA, toSvg, W) {
-  const locus = svg.querySelector('#cat-locus');
-  if (!locus || !_catState) return;
-  const { L0, w, EA, H0 } = _catState;
-  const pts = [];
-  for (let i = 1; i <= 24; i++) {      // 24 interior positions (skip endpoints)
-    const xw = (i / 25) * d;
-    const r = _solveLoaded(d, h, L0, w, EA, xw, W, H0);
-    if (r) pts.push(toSvg(r.walkerPt.x, r.walkerPt.y));
-  }
-  locus.setAttribute('points', pts.map(p => p.join(',')).join(' '));
-}
+    function showSlopeLegend(visible) {
+        document.getElementById('slope-legend').style.display = visible ? 'block' : 'none';
+        if (!visible) return;
+        const {min, max} = _slopeStats;
+        _fillBar('slope-bar', x => slopeColor((min + x * (max - min)) / MAX_SLOPE_DEG));
+        document.getElementById('slope-leg-min').textContent = min.toFixed(1) + '°';
+        document.getElementById('slope-leg-max').textContent = max.toFixed(1) + '°';
+    }
 
-// Recompute and draw the loaded catenary with walker at horizontal fraction t.
-function _updateCatenaryAt(t) {
-  if (!_currentDetailPair) return;
-  const svg = document.querySelector('#detail-content svg[data-elev]');
-  if (!svg) return;
+    // ── Status / progress ────────────────────────────────────────────────────────
+    function setStatus(msg) {
+        const el = document.getElementById('status');
+        el.textContent = msg;
+        let state = 'idle';
+        if (msg.startsWith('Error:')) state = 'error';
+        else if (/\d+ pairs? found/.test(msg)) state = 'done';
+        else if (msg.includes('Area selected')) state = 'ready';
+        else if (msg.includes('too large') || msg.includes('must be less')) state = 'error';
+        else if (msg.includes('Draw') || msg.includes('first')) state = 'idle';
+        el.dataset.state = state;
+    }
 
-  const p      = _currentDetailPair.p;
-  const d      = p.distance_m;
-  const h      = (p.elev_b != null && p.elev_a != null) ? p.elev_b - p.elev_a : 0;
-  const elevA  = p.elev_a ?? 0;
-  const xw     = Math.max(0.02, Math.min(0.98, t)) * d;
+    const _PHASES = [3, 35, 45, 55, 63, 75, 100];
+    const _tween = {current: 0, target: 0, raf: null};
 
-  const { padLeft, innerW, padTop, innerH, minElev, maxElev } = _svgDims(svg);
-  const elevRange = maxElev - minElev;
-  if (elevRange <= 0) return;
+    function _tweenTick() {
+        const gap = _tween.target - _tween.current;
+        if (gap < 0.05) return;
+        _tween.current += gap * 0.015;
+        document.getElementById('progress-bar').style.width = _tween.current.toFixed(2) + '%';
+        _tween.raf = requestAnimationFrame(_tweenTick);
+    }
 
-  const { EA, w, H0, W } = _getLineParams();
+    function setProgress(pct) {
+        if (_tween.raf) {
+            cancelAnimationFrame(_tween.raf);
+            _tween.raf = null;
+        }
+        const bar = document.getElementById('progress-bar');
+        bar.style.opacity = '1';
+        bar.style.transition = 'none';
+        bar.style.width = pct + '%';
+        _tween.current = pct;
+        const next = _PHASES.find(p => p > pct);
+        _tween.target = next != null ? next - 0.5 : pct;
+        if (_tween.target > pct) _tween.raf = requestAnimationFrame(_tweenTick);
+    }
 
-  // Physical → SVG pixel coordinates (shared by locus and catenary)
-  const toSvg = (xm, ym) => [
-    (padLeft + (xm / d) * innerW).toFixed(2),
-    (padTop + innerH - ((ym + elevA - minElev) / elevRange) * innerH).toFixed(2),
-  ];
+    // ── Elastic catenary physics ──────────────────────────────────────────────────
 
-  // Recompute unloaded natural length when params or pair change; also redraw locus
-  const paramsChanged = !_catState || _catState.d !== d || _catState.h !== h ||
-    _catState.H0 !== H0 || _catState.w !== w || _catState.EA !== EA;
-  if (paramsChanged) {
-    const r = _solveUnloaded(d, h, H0, w, EA);
-    if (!r) { _clearCatenary(svg); return; }
-    _catState = { d, h, H0, w, EA, L0: r.L0 };
-    _drawLocus(svg, d, h, elevA, toSvg, W);
-  }
+    // Elastic catenary position at natural arc-length s from start.
+    // H = horizontal tension (N), V = upward reaction at s=0 (N),
+    // w = weight per unit natural length (N/m), EA = axial stiffness (N).
+    function _catAt(H, V, s, w, EA) {
+        if (s === 0) return {x: 0, y: 0};
+        const T0 = Math.hypot(H, V);
+        const Vs = V - w * s;
+        const Ts = Math.hypot(H, Vs);
+        return {
+            x: H * s / EA + H / w * (Math.asinh(V / H) - Math.asinh(Vs / H)),
+            y: (V * s - w * s * s / 2) / EA + (T0 - Ts) / w,
+        };
+    }
 
-  const result = _solveLoaded(d, h, _catState.L0, w, EA, xw, W, H0);
-  const catLine    = svg.querySelector('#cat-line');
-  const catWalker  = svg.querySelector('#cat-walker');
-  const catTension = svg.querySelector('#cat-tension');
-  if (!result) {
-    catLine?.setAttribute('points', '');
-    catWalker && (catWalker.setAttribute('cx', '-100'), catWalker.setAttribute('cy', '-100'));
-    return;
-  }
+    // 2×2 Newton–Raphson. f(x,y) returns [r1,r2]. Returns [x,y] or null.
+    function _nr2(f, x0, y0) {
+        let [x, y] = [x0, y0];
+        const d = 1e-6, eps = 1e-7;
+        for (let i = 0; i < 60; i++) {
+            const r = f(x, y);
+            if (Math.abs(r[0]) < eps && Math.abs(r[1]) < eps) return [x, y];
+            const rx = f(x + d, y), ry = f(x, y + d);
+            const J11 = (rx[0] - r[0]) / d, J12 = (ry[0] - r[0]) / d;
+            const J21 = (rx[1] - r[1]) / d, J22 = (ry[1] - r[1]) / d;
+            const det = J11 * J22 - J12 * J21;
+            if (Math.abs(det) < 1e-14) return null;
+            x -= (J22 * r[0] - J12 * r[1]) / det;
+            y -= (J11 * r[1] - J21 * r[0]) / det;
+        }
+        return null;
+    }
 
-  const { pts, walkerPt, TA, TB } = result;
+    // 3×3 Newton–Raphson. f(x,y,z) returns [r1,r2,r3]. Returns [x,y,z] or null.
+    function _nr3(f, x0, y0, z0) {
+        let [x, y, z] = [x0, y0, z0];
+        const d = 1e-6, eps = 1e-7;
+        for (let i = 0; i < 80; i++) {
+            const r = f(x, y, z);
+            if (r.every(v => Math.abs(v) < eps)) return [x, y, z];
+            const rx = f(x + d, y, z), ry = f(x, y + d, z), rz = f(x, y, z + d);
+            const [a, b, c] = [(rx[0] - r[0]) / d, (ry[0] - r[0]) / d, (rz[0] - r[0]) / d];
+            const [dd, e, ff] = [(rx[1] - r[1]) / d, (ry[1] - r[1]) / d, (rz[1] - r[1]) / d];
+            const [g, hh, k] = [(rx[2] - r[2]) / d, (ry[2] - r[2]) / d, (rz[2] - r[2]) / d];
+            const det = a * (e * k - ff * hh) - b * (dd * k - ff * g) + c * (dd * hh - e * g);
+            if (Math.abs(det) < 1e-14) return null;
+            const inv = [
+                [(e * k - ff * hh) / det, -(b * k - c * hh) / det, (b * ff - c * e) / det],
+                [-(dd * k - ff * g) / det, (a * k - c * g) / det, -(a * ff - c * dd) / det],
+                [(dd * hh - e * g) / det, -(a * hh - b * g) / det, (a * e - b * dd) / det],
+            ];
+            const dr = inv.map(row => row[0] * r[0] + row[1] * r[1] + row[2] * r[2]);
+            x -= dr[0];
+            y -= dr[1];
+            z -= dr[2];
+        }
+        return null;
+    }
 
-  catLine.setAttribute('points', pts.map(({ x, y }) => toSvg(x, y).join(',')).join(' '));
-  const [wx, wy] = toSvg(walkerPt.x, walkerPt.y);
-  catWalker.setAttribute('cx', wx); catWalker.setAttribute('cy', wy);
-  catTension.textContent = `T_A ${(TA / 1000).toFixed(2)} kN  ·  T_B ${(TB / 1000).toFixed(2)} kN`;
-}
+    // Find natural length L0 and vertical reaction V0 for an unloaded catenary
+    // spanning (0,0)→(span,rise) with horizontal tension H0.
+    function _solveUnloaded(span, rise, H0, w, EA) {
+        const Lgeom = Math.hypot(span, rise);
+        const r = _nr2(
+            (V, L) => {
+                if (L <= 0 || H0 <= 0) return [1e9, 1e9];
+                const e = _catAt(H0, V, L, w, EA);
+                return [e.x - span, e.y - rise];
+            },
+            H0 * rise / span + w * Lgeom * 0.5,
+            Lgeom * (1 - H0 / EA),
+        );
+        return r ? {V0: r[0], L0: r[1]} : null;
+    }
 
-function updateLineHint() {
-  const preset = document.getElementById('linePreset');
-  const tension = document.getElementById('preTension');
-  const hint = document.getElementById('line-hint');
-  if (!hint) return;
-  const label = preset.options[preset.selectedIndex].text;
-  hint.textContent = `${label} · ${tension.value} N`;
-}
+    // Solve two coupled elastic catenaries with walker at horizontal position xw (m).
+    // d = span, h = rise (elev_b − elev_a), L0 = natural length, W = walker load (N).
+    // Returns { pts[21], walkerPt, TA, TB } or null.
+    function _solveLoaded(d, h, L0, w, EA, xw, W, H0) {
+        if (xw < 0.02 * d || xw > 0.98 * d) return null;
+        const L1i = L0 * (xw / d);
+        const Hi = H0 || 2000;
+        // Taut-string approximation: rope slopes downward from A to walker → V1 is negative for level/near-level spans
+        const V1i = Hi * h / d - W * (d - xw) / d;
+        const res = _nr3(
+            (H, V1, L1) => {
+                if (H < 1 || L1 < 0.005 * L0 || L1 > 0.995 * L0) return [1e9, 1e9, 1e9];
+                const L2 = L0 - L1, V2 = V1 - w * L1 + W;
+                const e1 = _catAt(H, V1, L1, w, EA);
+                const e2 = _catAt(H, V2, L2, w, EA);
+                return [e1.x - xw, e2.x - (d - xw), e1.y + e2.y - h];
+            },
+            Hi, V1i, L1i,
+        );
+        if (!res) return null;
+        const [H, V1, L1] = res;
+        if (H < 0 || L1 <= 0 || L1 >= L0) return null;
+        const L2 = L0 - L1, V2 = V1 - w * L1 + W;
+        const walkerPt = _catAt(H, V1, L1, w, EA);
 
-// Preset dropdown handler
-function onLinePresetChange() {
-  const preset = document.getElementById('linePreset').value;
-  document.getElementById('line-custom').style.display = preset === 'custom' ? 'block' : 'none';
-  _catState = null;
-  _updateCatenaryAt(_lastCatT);
-  updateLineHint();
-}
+        // Sample WALKER_SAMPLES points evenly along natural length (post-solve curve reconstruction)
+        const pts = [];
+        for (let i = 0; i < WALKER_SAMPLES; i++) {
+            const s = (i / (WALKER_SAMPLES - 1)) * L0;
+            if (s <= L1) {
+                pts.push(_catAt(H, V1, s, w, EA));
+            } else {
+                const p2 = _catAt(H, V2, s - L1, w, EA);
+                pts.push({x: walkerPt.x + p2.x, y: walkerPt.y + p2.y});
+            }
+        }
+        return {pts, walkerPt, TA: Math.hypot(H, V1), TB: Math.hypot(H, V2 - w * L2)};
+    }
 
-// Re-draw on any line/load param change
-;['preTension', 'walkerKg', 'lineEA', 'lineW'].forEach(id => {
-  document.getElementById(id)?.addEventListener('input', () => {
-    _catState = null;
-    _updateCatenaryAt(_lastCatT);
-    if (id === 'preTension') updateLineHint();
-  });
-});
-updateLineHint();
+    // Read current line params from toolbar inputs.
+    function _getLineParams() {
+        const preset = document.getElementById('linePreset')?.value || 'tubular25';
+        const {EA, w} = preset === 'custom'
+            ? {
+                EA: +(document.getElementById('lineEA')?.value) || LINE_PRESETS.tubular25.EA,
+                w: +(document.getElementById('lineW')?.value) || LINE_PRESETS.tubular25.w
+            }
+            : (LINE_PRESETS[preset] || LINE_PRESETS.tubular25);
+        const H0 = +(document.getElementById('preTension')?.value) || 2000;
+        const W = (+(document.getElementById('walkerKg')?.value) || 80) * GRAVITY;
+        return {EA, w, H0, W};
+    }
 
-function setLoading(on) {
-  document.getElementById('searchBtn').disabled = on;
-  if (_tween.raf) { cancelAnimationFrame(_tween.raf); _tween.raf = null; }
-  const bar = document.getElementById('progress-bar');
-  if (on) {
-    bar.style.transition = 'none'; bar.style.width = '0%'; bar.style.opacity = '1';
-    _tween.current = 0;
-    document.getElementById('status').dataset.state = 'loading';
-  } else {
-    bar.style.transition = 'width 0.2s ease, opacity 0.5s ease 0.25s';
-    bar.style.width = '100%';
-    setTimeout(() => { bar.style.opacity = '0'; }, 50);
-  }
-}
+    // Clear catenary overlay elements in the open SVG.
+    function _clearCatenary(svg) {
+        svg = svg || document.querySelector('#detail-content svg[data-elev]');
+        if (!svg) return;
+        svg.querySelector('#cat-locus')?.setAttribute('points', '');
+        svg.querySelector('#cat-line')?.setAttribute('points', '');
+        const cw = svg.querySelector('#cat-walker');
+        if (cw) {
+            cw.setAttribute('cx', '-100');
+            cw.setAttribute('cy', '-100');
+        }
+        const ct = svg.querySelector('#cat-tension');
+        if (ct) ct.textContent = '';
+    }
+
+    // Draw the walker-position locus: sample 25 walker positions across the span,
+    // plot where the walker's foot would be for each position.
+    function _drawLocus(svg, d, h, elevA, toSvg, W) {
+        const locus = svg.querySelector('#cat-locus');
+        if (!locus || !_catState) return;
+        const {L0, w, EA, H0} = _catState;
+        const pts = [];
+        for (let i = 1; i <= 24; i++) {      // 24 interior positions (skip endpoints)
+            const xw = (i / 25) * d;
+            const r = _solveLoaded(d, h, L0, w, EA, xw, W, H0);
+            if (r) pts.push(toSvg(r.walkerPt.x, r.walkerPt.y));
+        }
+        locus.setAttribute('points', pts.map(p => p.join(',')).join(' '));
+    }
+
+    // Recompute and draw the loaded catenary with walker at horizontal fraction t.
+    function _updateCatenaryAt(t) {
+        if (!_currentDetailPair) return;
+        const svg = document.querySelector('#detail-content svg[data-elev]');
+        if (!svg) return;
+
+        const p = _currentDetailPair.p;
+        const d = p.distance_m;
+        const h = (p.elev_b != null && p.elev_a != null) ? p.elev_b - p.elev_a : 0;
+        const elevA = p.elev_a ?? 0;
+        const xw = Math.max(0.02, Math.min(0.98, t)) * d;
+
+        const {padLeft, innerW, padTop, innerH, minElev, maxElev} = _svgDims(svg);
+        const elevRange = maxElev - minElev;
+        if (elevRange <= 0) return;
+
+        const {EA, w, H0, W} = _getLineParams();
+
+        // Physical → SVG pixel coordinates (shared by locus and catenary)
+        const toSvg = (xm, ym) => [
+            (padLeft + (xm / d) * innerW).toFixed(2),
+            (padTop + innerH - ((ym + elevA - minElev) / elevRange) * innerH).toFixed(2),
+        ];
+
+        // Recompute unloaded natural length when params or pair change; also redraw locus
+        const paramsChanged = !_catState || _catState.d !== d || _catState.h !== h ||
+            _catState.H0 !== H0 || _catState.w !== w || _catState.EA !== EA;
+        if (paramsChanged) {
+            const r = _solveUnloaded(d, h, H0, w, EA);
+            if (!r) {
+                _clearCatenary(svg);
+                return;
+            }
+            _catState = {d, h, H0, w, EA, L0: r.L0};
+            _drawLocus(svg, d, h, elevA, toSvg, W);
+        }
+
+        const result = _solveLoaded(d, h, _catState.L0, w, EA, xw, W, H0);
+        const catLine = svg.querySelector('#cat-line');
+        const catWalker = svg.querySelector('#cat-walker');
+        const catTension = svg.querySelector('#cat-tension');
+        if (!result) {
+            catLine?.setAttribute('points', '');
+            catWalker && (catWalker.setAttribute('cx', '-100'), catWalker.setAttribute('cy', '-100'));
+            return;
+        }
+
+        const {pts, walkerPt, TA, TB} = result;
+
+        catLine.setAttribute('points', pts.map(({x, y}) => toSvg(x, y).join(',')).join(' '));
+        const [wx, wy] = toSvg(walkerPt.x, walkerPt.y);
+        catWalker.setAttribute('cx', wx);
+        catWalker.setAttribute('cy', wy);
+        catTension.textContent = `T_A ${(TA / 1000).toFixed(2)} kN  ·  T_B ${(TB / 1000).toFixed(2)} kN`;
+    }
+
+    function updateLineHint() {
+        const preset = document.getElementById('linePreset');
+        const tension = document.getElementById('preTension');
+        const hint = document.getElementById('line-hint');
+        if (!hint) return;
+        const label = preset.options[preset.selectedIndex].text;
+        hint.textContent = `${label} · ${tension.value} N`;
+    }
+
+    // Preset dropdown handler
+    function onLinePresetChange() {
+        const preset = document.getElementById('linePreset').value;
+        document.getElementById('line-custom').style.display = preset === 'custom' ? 'block' : 'none';
+        _catState = null;
+        _updateCatenaryAt(_lastCatT);
+        updateLineHint();
+    }
+
+    // Re-draw on any line/load param change
+    ;['preTension', 'walkerKg', 'lineEA', 'lineW'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', () => {
+            _catState = null;
+            _updateCatenaryAt(_lastCatT);
+            if (id === 'preTension') updateLineHint();
+        });
+    });
+    updateLineHint();
+
+    function setLoading(on) {
+        document.getElementById('searchBtn').disabled = on;
+        if (_tween.raf) {
+            cancelAnimationFrame(_tween.raf);
+            _tween.raf = null;
+        }
+        const bar = document.getElementById('progress-bar');
+        if (on) {
+            bar.style.transition = 'none';
+            bar.style.width = '0%';
+            bar.style.opacity = '1';
+            _tween.current = 0;
+            document.getElementById('status').dataset.state = 'loading';
+        } else {
+            bar.style.transition = 'width 0.2s ease, opacity 0.5s ease 0.25s';
+            bar.style.width = '100%';
+            setTimeout(() => {
+                bar.style.opacity = '0';
+            }, 50);
+        }
+    }
 </script>
 </body>
 </html>

@@ -1,0 +1,46 @@
+{
+  "aerialway": {
+    "pylon": {
+      "icon": "gondola_lift"
+    }
+  },
+  "highway": {
+    "street_lamp": {
+      "icon": "table_lamp"
+    }
+  },
+  "man_made": {
+    "flagpole": {
+      "icon": "flag"
+    },
+    "mast": {
+      "icon": "cell_tower"
+    }
+  },
+  "natural": {
+    "tree": {
+      "icon": "nature",
+      "variations": {
+        "leaf_type": {
+          "broadleaved": "nature",
+          "needleleaved": "park",
+          "mixed": "forest",
+          "leafless": null
+        },
+        "leaf_cycle": {
+          "deciduous": "nature",
+          "evergreen": "park",
+          "semi_deciduous": "nature",
+          "semi_evergreen": "park",
+          "mixed": "forest"
+        },
+        "circumference": {
+          "< 470 mm": null
+        },
+        "diameter": {
+          "< 150 mm": null
+        }
+      }
+    }
+  }
+}
