@@ -61,19 +61,19 @@
   },
   "urban": {
     "description": "Urban fabric — residential, commercial and built-up areas",
-    "color": "#df9683",
+    "color": "#d97706",
     "allowed": false,
     "water": false
   },
   "water": {
     "description": "Water bodies — rivers, lakes, reservoirs, coastal water",
-    "color": "#456d9e",
+    "color": "#6ba3bd",
     "allowed": true,
     "water": true
   },
   "wetland": {
     "description": "Wetlands — inland marshes, peat bogs",
-    "color": "#7db99d",
+    "color": "#b7d6eb",
     "allowed": true,
     "water": true
   }

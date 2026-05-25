@@ -201,22 +201,19 @@ def sample_landuse_along_line(
         i = j + 1
 
     # ── 3. Merge interior singletons into shorter neighbour ───────────────────
-    changed = True
-    while changed:
-        changed = False
-        for idx, run in enumerate(runs):
-            s, e, lu = run
-            if s == e and s != 0 and e != N - 1:   # interior singleton
-                left_len  = (runs[idx - 1][1] - runs[idx - 1][0]) if idx > 0              else float("inf")
-                right_len = (runs[idx + 1][1] - runs[idx + 1][0]) if idx < len(runs) - 1 else float("inf")
-                if left_len <= right_len:
-                    runs[idx - 1][1] = e    # extend left run's end
-                else:
-                    runs[idx + 1][0] = s    # extend right run's start
+    idx = 0
+    while idx > 0:
+        s, e, lu = runs[idx]
+        if s == e and s != 0 and e != N - 1:   # interior singleton
+            runs[idx - 1][1] = e    # extend left run's end
+            runs.pop(idx)
+            if runs[idx - 1][2] == runs[idx][2]:
+                runs[idx - 1][1] = runs[idx][1]   # extend right run's start
                 runs.pop(idx)
-                changed = True
-                break
-
+        idx += 1
+        if idx >= len(runs):
+            idx = -1
+        
     # ── 4. Convert runs to tiling features (t_start / t_end share boundaries) ─
     features: list[dict] = []
     for s, e, lu in runs:

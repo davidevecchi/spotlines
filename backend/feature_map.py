@@ -22,27 +22,22 @@ try:
             _key = _row["key"].strip()
             _val = _row["value"].strip()
             _data.setdefault(_key, {})[_val] = {
-                "los":         _row["los"].strip()    == "True",
-                "buffer":      _row["buffer"].strip() == "True",
-                "anchor":      _row["anchor"].strip() == "True",
-                "water":       _row["water"].strip()  == "True",
-                "color":       _row["color"].strip(),
+                "los": _row["los"].strip() == "True",
+                "buffer": _row["buffer"].strip() == "True",
+                "anchor": _row["anchor"].strip() == "True",
+                "water": _row["water"].strip() == "True",
+                "color": _row["color"].strip(),
                 "description": _row["description"].strip(),
             }
     DATA: dict[str, dict[str, dict]] = _data
 except Exception:
     DATA = {}
 
-# Per-key color derived from CSV: prefer the "*" row, else first row with a color.
-def _key_color(values: dict[str, dict]) -> str:
-    if "*" in values and values["*"].get("color"):
-        return values["*"]["color"]
-    for v in values.values():
-        if v.get("color"):
-            return v["color"]
-    return ""
 
-OVERPASS_DATA: dict[str, dict] = {k: {"color": _key_color(v)} for k, v in DATA.items()}
+OVERPASS_DATA: dict[str, dict] = {}
+for k, d in DATA.items():
+    for v, vv in d.items():
+        OVERPASS_DATA[f'{k}:{v}'] = {"color": vv.get("color") or "#64748b"}
 
 KEYS: frozenset[str] = frozenset(DATA)
 OVERPASS_KEYS: frozenset[str] = frozenset()

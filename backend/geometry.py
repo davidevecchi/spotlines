@@ -266,7 +266,7 @@ def _feature_label_category(tags: dict) -> tuple:
             p = _fm.props(jkey, val)
             if p.get("anchor"):
                 return None, None, None
-            return _format_tag(val), name, jkey
+            return val, name, jkey
     return None, None, None
 
 

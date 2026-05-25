@@ -1270,18 +1270,18 @@ function closeDetail() {
   document.getElementById('detail-content').innerHTML = '';
 }
 
-function featureColor(f) {
-  if (!f) return '#64748b';
+function featureColor(f, fallback='#64748b') {
+  if (!f) return fallback;
   if (f.category === 'osmlanduse') {
     const key = (f.label || '').toLowerCase().replace(/\s+/g, '_');
-    return _landuseTypes[key]?.color || '#64748b';
+    return _landuseTypes[key]?.color || fallback;
   }
-  return _overpasFeatures[f.category]?.color || '#64748b';
+  return _overpasFeatures[`${f.category}:${f.label}`.toLowerCase()]?.color || fallback;
 }
 
 function featureLabel(f) {
   if (!f) return '';
-  if (f.label) return f.name ? `${f.label}: ${f.name}` : f.label;
+  if (f.label) { const l = f.label.replace(/_/g, ' '); return f.name ? `${l}: ${f.name}` : l; }
   return f.category || '';
 }
 
@@ -1535,7 +1535,7 @@ function elevSvg(terrain, elevA, elevB, corridorFeatures, distance_m, W, H) {
     for (const s of _normalizeLanduseSegs(luFeats)) {
       const x1 = PL + s.t_start * iW;
       const w  = (s.t_end - s.t_start) * iW;
-      strips += `<rect x="${x1.toFixed(2)}" y="${PT}" width="${Math.max(w, 0).toFixed(2)}" height="${iH}" fill="${s.col}" opacity="0.13"/>`;
+      strips += `<rect x="${x1.toFixed(2) + 1}" y="${PT}" width="${Math.max(w, 0).toFixed(2) - 2}" height="${iH}" fill="${s.col}" opacity="0.15"/>`;
     }
   }
 
@@ -1638,10 +1638,13 @@ function _buildLanduseStrip(landuseFeats) {
 
   // Use left + right (both from t values directly) so the two edges of every
   // segment are each computed independently — no additive precision loss.
-  const fills = segments.map(s => {
+  const _n = segments.length;
+  const fills = segments.map((s, i) => {
     const left  = (s.t_start * 100).toFixed(3);
     const right = ((1 - s.t_end) * 100).toFixed(3);
-    return `<div title="${_escXml(s.label)}" style="position:absolute;left:${left}%;right:${right}%;height:100%;background:${s.col}"></div>`;
+    const leftVal  = i > 0      ? `calc(${left}% + 1px)`  : `${left}%`;
+    const rightVal = i < _n - 1 ? `calc(${right}% + 1px)` : `${right}%`;
+    return `<div title="${_escXml(s.label)}" style="position:absolute;left:${leftVal};right:${rightVal};height:100%;background:${s.col}"></div>`;
   }).join('');
 
   const strip = `<div style="position:relative;height:7px;background:rgba(180,140,90,0.13);border-radius:3px;overflow:hidden;margin:3px 0 4px">${fills}</div>`;
@@ -1691,15 +1694,19 @@ function buildCorridorFeatureList(feats) {
 
       let barHtml = '';
       if (segsArr.length) {
-        const fills = segsArr.map(s => {
+        const _m = segsArr.length;
+        const fills = segsArr.map((s, i) => {
           const barX = (s.t_start * 100).toFixed(1);
           const barW = Math.max((s.t_end - s.t_start) * 100, 0.5).toFixed(1);
-          return `<div style="position:absolute;left:${barX}%;width:${barW}%;height:100%;background:${col};opacity:0.75;border-radius:2px"></div>`;
+          const xVal = i > 0      ? `calc(${barX}% + 1px)` : `${barX}%`;
+          const wAdj = (i > 0 ? 1 : 0) + (i < _m - 1 ? 1 : 0);
+          const wVal = wAdj > 0   ? `calc(${barW}% - ${wAdj}px)` : `${barW}%`;
+          return `<div style="position:absolute;left:${xVal};width:${wVal};height:100%;background:${col};border-radius:2px"></div>`;
         }).join('');
         barHtml = `<div style="margin-top:2px;position:relative;height:5px;background:rgba(180,140,90,0.15);border-radius:2px;overflow:hidden">${fills}</div>`;
       }
 
-      const valuePart = f.label ? _escXml(f.label) : _escXml(f.category || '');
+      const valuePart = f.label ? _escXml(f.label.replace(/_/g, ' ')) : _escXml(f.category || '');
       const namePart  = f.label && f.name ? `<span style="font-weight:400">: ${_escXml(f.name)}</span>` : '';
       const keyPart   = f.label ? `<span style="color:#a8a29e;font-weight:400;font-size:9px;margin-left:4px">${_escXml(f.category||'')}</span>` : '';
       rows += `<div style="margin-bottom:5px">` +
