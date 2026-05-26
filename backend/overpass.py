@@ -24,7 +24,7 @@ class Anchor:
     lat: float
     lon: float
     tags: dict
-    kind: str  # tree  (guard_rail | tree_row | forest_edge | geological disabled)
+    kind: str
     terrain: str = ""
 
 

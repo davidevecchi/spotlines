@@ -220,8 +220,8 @@ _JSON_LABEL_KEYS: list[str] = sorted(_fm.KEYS)
 def _classify_flags(tags: dict) -> tuple[bool, bool, bool, bool]:
     """Return (is_los_blocker, is_buf_blocker, is_water, is_anchor).
 
-    Looks up the first matching JSON key.  Any value not listed in the JSON
-    produces both blocker flags True (the 'not in JSON → blocks both zones' rule).
+    Looks up the first matching key present in the feature map.  Tags whose key
+    is not covered by the CSV at all are silently ignored (not treated as blockers).
     """
     for jkey in _JSON_LABEL_KEYS:
         val = tags.get(jkey)
@@ -231,7 +231,7 @@ def _classify_flags(tags: dict) -> tuple[bool, bool, bool, bool]:
                 return False, False, False, True
             is_water = bool(p.get("water"))
             return not bool(p.get("los")), not bool(p.get("buffer")), is_water, False
-    return True, True, False, False
+    return False, False, False, False
 
 
 def _blocking_geom(el: dict, etype: str, tags: dict,

@@ -284,6 +284,118 @@ async def debug_corridor(
 
 
 # ---------------------------------------------------------------------------
+# Custom pair analysis endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/spot/pair")
+async def get_spot_pair(
+    lat_a: float = Query(..., ge=-90, le=90),
+    lon_a: float = Query(..., ge=-180, le=180),
+    lat_b: float = Query(..., ge=-90, le=90),
+    lon_b: float = Query(..., ge=-180, le=180),
+    clearance_m: float = Query(default=1.0, ge=0, le=50),
+    fetch_pad_m: float = Query(default=50.0, ge=5, le=500),
+):
+    """Analyse LOS and corridor features for an arbitrary pair of coordinates.
+
+    Returns a single GeoJSON Feature wrapped in an SSE stream with progress events.
+    The feature uses the same property schema as /spots results.
+    """
+    import math
+
+    from .analysis import Pair
+    from .geometry import check_los
+    from .overpass import Anchor as _Anchor
+
+    loop = asyncio.get_running_loop()
+
+    mid_lat = (lat_a + lat_b) / 2.0
+    dist_m = math.sqrt(
+        ((lon_b - lon_a) * 111_000 * math.cos(math.radians(mid_lat))) ** 2
+        + ((lat_b - lat_a) * 111_000) ** 2
+    )
+    pad_m = max(fetch_pad_m, dist_m * 0.6)
+    pad_lat = pad_m / 111_000
+    pad_lon = pad_m / (111_000 * max(math.cos(math.radians(mid_lat)), 0.001))
+    south = min(lat_a, lat_b) - pad_lat
+    north = max(lat_a, lat_b) + pad_lat
+    west = min(lon_a, lon_b) - pad_lon
+    east = max(lon_a, lon_b) + pad_lon
+
+    def evt(status: str, pct: int) -> str:
+        return "data: " + json.dumps({"status": status, "pct": pct}) + "\n\n"
+
+    async def generate():
+        yield evt("Fetching OSM, DEM, landuse…", 10)
+        try:
+            osm_fut = asyncio.ensure_future(
+                loop.run_in_executor(None, partial(fetch_osm, south, west, north, east))
+            )
+            dem_fut = asyncio.ensure_future(
+                loop.run_in_executor(None, partial(prefetch_dem, south, west, north, east))
+            )
+            raster_fut = asyncio.ensure_future(
+                loop.run_in_executor(None, partial(get_or_fetch_raster, south, west, north, east))
+            )
+            while not (osm_fut.done() and dem_fut.done() and raster_fut.done()):
+                await asyncio.sleep(0.5)
+            data = osm_fut.result()
+            raster, _ = raster_fut.result()
+            try:
+                dem_fut.result()
+            except Exception as dem_exc:
+                print(f"DEM prefetch warning (non-fatal): {dem_exc}", flush=True)
+        except Exception as exc:
+            yield "data: " + json.dumps({"error": str(exc)}) + "\n\n"
+            return
+
+        yield evt("Building spatial index…", 40)
+        _, elements, nodes_by_id, ways_by_id = parse_osm(data)
+        geom_cache: dict = {}
+        element_tree, records, _, _, _ = build_all_indices(
+            elements, nodes_by_id, ways_by_id, [], geom_cache, mid_lat=mid_lat,
+        )
+
+        a = _Anchor(-1, lat_a, lon_a, {}, "custom")
+        b = _Anchor(-2, lat_b, lon_b, {}, "custom")
+        pair = Pair(anchor_a=a, anchor_b=b, distance_m=round(dist_m, 1), over_water=False)
+
+        yield evt("Sampling elevation…", 60)
+        await loop.run_in_executor(None, partial(fetch_elevations, [pair]))
+
+        yield evt("Checking line-of-sight…", 75)
+        ok, over_water = await loop.run_in_executor(
+            None, partial(check_los, a, b, element_tree, records, clearance_m=clearance_m)
+        )
+        pair.over_water = over_water
+
+        yield evt("Getting corridor features…", 85)
+        pair.corridor_features = await loop.run_in_executor(
+            None, partial(get_corridor_features, a, b, clearance_m, element_tree, records, mid_lat)
+        )
+        if raster is not None:
+            from .analysis import compute_corridor_landuse
+            await loop.run_in_executor(
+                None, partial(compute_corridor_landuse, [pair], raster, south, west, north, east)
+            )
+        from .analysis import filter_landuse_blockers
+        blocked_by_landuse = not filter_landuse_blockers([pair])
+
+        feature = _pair_to_feature(pair)
+        feature["properties"]["los_blocked"] = not ok
+        feature["properties"]["blocked_by_landuse"] = blocked_by_landuse
+        feature["properties"]["custom_pair"] = True
+
+        yield "data: " + json.dumps({"result": feature, "pct": 100}) + "\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main /spots endpoint
 # ---------------------------------------------------------------------------
 
@@ -357,12 +469,14 @@ async def get_spots(
             get_distance_candidates, anchors, min_m, max_m,
         ))
         t4 = time.perf_counter()
+        n_dist = len(pairs)
 
         if pairs:
             yield evt(f"Sampling elevation for {len(pairs)} candidates…", 60)
             await loop.run_in_executor(None, partial(fetch_elevations, pairs))
         pairs = [p for p in pairs if p.slope_deg is None or p.slope_deg <= max_slope]
         t5 = time.perf_counter()
+        n_elev = len(pairs)
 
         if pairs:
             yield evt(f"Landuse filter ({len(pairs)} pairs)…", 65)
@@ -370,6 +484,7 @@ async def get_spots(
                 _filter_landuse, pairs, raster, south, west, north, east, clearance_m,
             ))
         t5a = time.perf_counter()
+        n_landuse = len(pairs)
 
         if pairs:
             yield evt(f"LOS check ({len(pairs)} pairs)…", 70)
@@ -377,6 +492,7 @@ async def get_spots(
                 apply_los_buffer, pairs, element_tree, records, clearance_m,
             ))
         t6 = time.perf_counter()
+        n_los = len(pairs)
 
         if water == "only":
             pairs = [p for p in pairs if p.over_water]
@@ -402,8 +518,8 @@ async def get_spots(
             f"TIMING  anchors={len(anchors)}(filtered)  elements={len(elements)}  "
             f"pairs={len(features)} | "
             f"fetch={t1-t0:.2f}s  parse={t2-t1:.2f}s  indices={t3-t2:.2f}s  "
-            f"dist_cands={t4-t3:.2f}s  elev={t5-t4:.2f}s  "
-            f"landuse_f={t5a-t5:.2f}s  los_buf={t6-t5a:.2f}s  "
+            f"dist_cands={t4-t3:.2f}s({n_dist})  elev={t5-t4:.2f}s({n_elev})  "
+            f"landuse_f={t5a-t5:.2f}s({n_landuse})  los_buf={t6-t5a:.2f}s({n_los})  "
             f"corridor={t7-t6:.2f}s  serial={t8-t7:.2f}s  TOTAL={t8-t0:.2f}s",
             flush=True,
         )

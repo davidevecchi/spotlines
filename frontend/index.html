@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,400,0,0">
     <style>
         *, *::before, *::after {
             box-sizing: border-box;
@@ -56,14 +57,90 @@
             padding: 0;
         }
 
-        #panel-detail {
-            pointer-events: all;
+        #panel-detail-wrap {
             flex: 1;
             min-height: 0;
-            overflow-y: auto;
-            display: none;
-            padding: 12px 14px;
             position: relative;
+            display: none;
+            pointer-events: none;
+        }
+
+        #panel-detail {
+            pointer-events: all;
+            height: 100%;
+            overflow-y: auto;
+            padding: 12px 14px;
+        }
+
+        #legend-wrap {
+            flex-shrink: 0;
+            margin-top: auto;
+            position: relative;
+            display: none;
+            pointer-events: none;
+        }
+
+        .panel-tab {
+            pointer-events: all;
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 18px;
+            height: 40px;
+            background: rgba(250, 246, 240, 0.97);
+            border: 1px solid rgba(180, 140, 90, 0.22);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.14);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #a8a29e;
+            opacity: 0;
+            transition: opacity 0.15s, color 0.15s;
+        }
+
+        #panel-detail-wrap .panel-tab {
+            right: -18px;
+            border-radius: 0 8px 8px 0;
+            border-left: none;
+        }
+
+        #legend-wrap .panel-tab {
+            left: -18px;
+            border-radius: 8px 0 0 8px;
+            border-right: none;
+        }
+
+        #panel-detail-wrap:hover .panel-tab,
+        #legend-wrap:hover .panel-tab {
+            opacity: 1;
+        }
+
+        .panel-tab:hover {
+            color: #b45309;
+        }
+
+        #detail-reopen-tab {
+            pointer-events: all;
+            display: none;
+            align-self: flex-end;
+            margin-right: -18px;
+            width: 18px;
+            height: 40px;
+            background: rgba(250, 246, 240, 0.97);
+            border: 1px solid rgba(180, 140, 90, 0.22);
+            border-left: none;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.14);
+            border-radius: 0 8px 8px 0;
+            cursor: pointer;
+            align-items: center;
+            justify-content: center;
+            color: #a8a29e;
+            transition: color 0.15s;
+        }
+
+        #detail-reopen-tab:hover {
+            color: #b45309;
         }
 
         /* ── Right column ── */
@@ -82,8 +159,7 @@
 
         #legend {
             padding: 9px 13px;
-            display: none;
-            margin-top: auto;
+            pointer-events: all;
         }
 
         /* ── Progress bar ── */
@@ -459,22 +535,6 @@
         }
 
         /* ── Detail panel ── */
-        #detail-close {
-            position: absolute;
-            top: 9px;
-            right: 10px;
-            background: none;
-            border: none;
-            font-size: 17px;
-            color: #a8a29e;
-            cursor: pointer;
-            line-height: 1;
-            padding: 2px 4px;
-        }
-
-        #detail-close:hover {
-            color: #292524;
-        }
 
         .detail-title {
             font-size: 11px;
@@ -580,6 +640,138 @@
             color: #b45309;
         }
 
+        /* ── Anchor summary line ── */
+        .anchor-summary-line {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-bottom: 7px;
+        }
+
+        .anchor-summary-line .anc-icon {
+            font-family: 'Material Symbols Rounded';
+            font-size: 20px;
+            font-weight: 300;
+            color: #b45309;
+            line-height: 1;
+            flex-shrink: 0;
+            font-style: normal;
+        }
+
+        .anchor-summary-line .anc-elev {
+            font-size: 11px;
+            color: #78716c;
+            font-weight: 400;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .anchor-summary-line .line-spine {
+            flex: 1;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 0;
+        }
+
+        .anchor-summary-line .line-spine::before {
+            content: '';
+            position: absolute;
+            left: 0; right: 0; top: 50%;
+            border-top: 1.5px dashed rgba(180,140,90,0.35);
+        }
+
+        .anchor-summary-line .metrics-pill {
+            position: relative;
+            background: rgba(250,246,240,0.97);
+            border: 1px solid rgba(180,140,90,0.28);
+            border-radius: 20px;
+            padding: 2px 9px;
+            font-size: 12.5px;
+            font-weight: 700;
+            color: #292524;
+            white-space: nowrap;
+        }
+
+        .anchor-summary-line .metrics-pill .slope-suf {
+            font-size: 11px;
+            font-weight: 400;
+            color: #78716c;
+        }
+
+        .compass-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+            flex-shrink: 0;
+            transition: opacity 0.12s;
+            display: flex;
+            align-items: center;
+        }
+        .compass-btn:hover { opacity: 0.7; }
+
+        /* ── Anchor tag rows ── */
+        .anchor-tags {
+            font-size: 11.5px;
+            margin-bottom: 6px;
+            border: 1px solid rgba(180,140,90,0.18);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .anchor-tag-row {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            padding: 5px 8px;
+            background: rgba(255,255,255,0.45);
+        }
+
+        .anchor-tag-row + .anchor-tag-row {
+            border-top: 1px solid rgba(180,140,90,0.12);
+        }
+
+        .at-label {
+            font-weight: 700;
+            font-size: 10px;
+            color: #a8a29e;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            min-width: 12px;
+            flex-shrink: 0;
+            padding-top: 1px;
+        }
+
+        .at-tags {
+            color: #44403c;
+            flex: 1;
+            line-height: 1.5;
+            min-width: 0;
+        }
+
+        .at-tags .tag-key {
+            color: #a8a29e;
+            font-size: 10px;
+        }
+
+        .at-actions {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .at-actions a {
+            color: #b45309;
+            text-decoration: none;
+            font-size: 10px;
+        }
+
+        .at-actions a:hover { text-decoration: underline; }
+
         /* ── Layer panel ── */
         #panel-layers {
             pointer-events: all;
@@ -598,7 +790,6 @@
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.14);
             border-radius: 8px;
             cursor: pointer;
-            font-size: 19px;
             color: #78716c;
             transition: color 0.15s;
         }
@@ -745,13 +936,83 @@
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.14);
             border-radius: 8px;
             cursor: pointer;
-            font-size: 19px;
             color: #78716c;
             transition: color 0.15s;
         }
 
         #geolocate-btn:hover {
             color: #b45309;
+        }
+
+        /* Zoom combo */
+        #zoom-combo {
+            pointer-events: all;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.14);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .zoom-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            background: rgba(250, 246, 240, 0.93);
+            border: 1px solid rgba(180, 140, 90, 0.22);
+            border-bottom: none;
+            cursor: pointer;
+            color: #78716c;
+            transition: color 0.15s, background 0.15s;
+            flex-shrink: 0;
+        }
+
+        .zoom-btn:last-child {
+            border-bottom: 1px solid rgba(180, 140, 90, 0.22);
+        }
+
+        .zoom-btn:hover {
+            color: #b45309;
+            background: rgba(250, 246, 240, 1);
+        }
+
+        /* Draw line button */
+        #draw-line-btn {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            background: rgba(255, 255, 255, 0.65);
+            border: 1px solid rgba(180, 140, 90, 0.35);
+            border-radius: 6px;
+            cursor: pointer;
+            color: #78716c;
+            transition: color 0.15s, background 0.15s, border-color 0.15s;
+        }
+
+        #draw-line-btn:hover {
+            background: rgba(255, 255, 255, 0.95);
+            color: #b45309;
+        }
+
+        #draw-line-btn.active {
+            background: #fef3c7;
+            border-color: #b45309;
+            color: #92400e;
+        }
+
+        /* Draw mode cursor */
+        .draw-mode #map {
+            cursor: crosshair !important;
+        }
+
+        /* Custom line layer */
+        .custom-line-blocked {
+            stroke-dasharray: 6 4;
         }
 
         /* ── Legend internals ── */
@@ -1017,6 +1278,9 @@
             <div class="btn-row">
                 <button id="selectAreaBtn" class="btn-secondary" onclick="toggleSelectArea()">Select area</button>
                 <button id="searchBtn" class="btn-primary" onclick="doSearch()" disabled>Search</button>
+                <button id="draw-line-btn" title="Draw custom line" onclick="toggleDrawLine()">
+                    <span class="material-symbols-rounded" style="font-size:18px;font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 20">draw</span>
+                </button>
             </div>
 
             <div id="status" data-state="idle">Draw a rectangle to begin</div>
@@ -1024,14 +1288,23 @@
     </div>
 
     <!-- Line detail (hidden until click) -->
-    <div id="panel-detail" class="island">
-        <button id="detail-close" onclick="closeDetail()">×</button>
-        <div class="detail-title">Line detail</div>
-        <div id="detail-content"></div>
+    <div id="panel-detail-wrap">
+        <div id="panel-detail" class="island">
+            <div id="detail-content"></div>
+        </div>
+        <button class="panel-tab" onclick="collapseDetail()" title="Collapse">
+            <span class="material-symbols-rounded" style="font-size:16px;font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 20">chevron_left</span>
+        </button>
     </div>
 
+    <!-- Reopen detail tab (shown when panel is collapsed) -->
+    <button id="detail-reopen-tab" onclick="reopenDetail()" title="Reopen">
+        <span class="material-symbols-rounded" style="font-size:16px;font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 20">chevron_right</span>
+    </button>
+
     <!-- Legend -->
-    <div id="legend" class="island" style="flex-shrink:0">
+    <div id="legend-wrap">
+    <div id="legend" class="island">
         <b>Distance (m)</b>
         <canvas id="legend-bar" height="10"></canvas>
         <div id="legend-labels">
@@ -1057,6 +1330,10 @@
             </div>
         </div>
     </div>
+    <button class="panel-tab" onclick="hideLegend()" title="Close">
+        <span class="material-symbols-rounded" style="font-size:16px;font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 20">chevron_left</span>
+    </button>
+    </div>
 
 </div>
 
@@ -1065,7 +1342,9 @@
 
     <!-- Layer switcher -->
     <div id="panel-layers">
-        <button id="layers-btn" title="Layers">⊞</button>
+        <button id="layers-btn" title="Layers">
+            <span class="material-symbols-rounded" style="font-size:20px;font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 20">layers</span>
+        </button>
         <div id="layers-expanded">
             <div class="panel-title" style="margin-bottom:9px">Base layer</div>
             <div class="layer-grid" id="layer-grid"></div>
@@ -1112,7 +1391,19 @@
     </div>
 
     <!-- Geolocate -->
-    <button id="geolocate-btn" title="Go to my location" onclick="geolocate()">⊕</button>
+    <button id="geolocate-btn" title="Go to my location" onclick="geolocate()">
+        <span class="material-symbols-rounded" style="font-size:20px;font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 20">my_location</span>
+    </button>
+
+    <!-- Zoom combo -->
+    <div id="zoom-combo">
+        <button class="zoom-btn" title="Zoom in" onclick="map.zoomIn()">
+            <span class="material-symbols-rounded" style="font-size:20px;font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 20">add</span>
+        </button>
+        <button class="zoom-btn" title="Zoom out" onclick="map.zoomOut()">
+            <span class="material-symbols-rounded" style="font-size:20px;font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 20">remove</span>
+        </button>
+    </div>
 
 
 </div>
@@ -1194,8 +1485,7 @@
     const TRENTO = [46.0667, 11.1167];
     const map = L.map('map', {center: TRENTO, zoom: 14, zoomControl: false});
 
-    // Zoom control at bottom-right corner (above legend area)
-    L.control.zoom({position: 'bottomright'}).addTo(map);
+    // Zoom is handled by custom #zoom-combo buttons in the right column
 
     map.createPane('labelsPane');
     map.getPane('labelsPane').style.zIndex = 450;
@@ -1480,6 +1770,235 @@
         );
     }
 
+    // ── Draw custom line ─────────────────────────────────────────────────────────
+    let _drawLineActive = false;
+    let _drawLinePointA = null;   // {lat, lng}
+    let _drawLineMarkerA = null;
+    let _drawLineMarkerB = null;
+    let _drawLinePrevLayer = null; // live preview line while placing second point
+    let _pendingCustomLine = null; // dotted placeholder shown during backend analysis
+    const _customLineData = []; // {group, feature} — committed custom lines, persist until page refresh
+
+    // Return true if latA/lonA → latB/lonB duplicates a line already on screen
+    // (checks regular search results + existing custom lines, ±5 m tolerance).
+    function _isDuplicateLine(latA, lonA, latB, lonB) {
+        const close = (ax, ay, bx, by) => {
+            const dlat = (ay - by) * 111_111;
+            const dlon = (ax - bx) * 111_111 * Math.cos(ay * Math.PI / 180);
+            return Math.sqrt(dlat * dlat + dlon * dlon) < 5;
+        };
+        const matches = (coords) => {
+            const [[c0x, c0y], [c1x, c1y]] = coords;
+            return (close(lonA, latA, c0x, c0y) && close(lonB, latB, c1x, c1y))
+                || (close(lonA, latA, c1x, c1y) && close(lonB, latB, c0x, c0y));
+        };
+        for (const f of (_currentFeatures || [])) {
+            if (f.geometry && matches(f.geometry.coordinates)) return true;
+        }
+        for (const {feature: f} of _customLineData) {
+            if (f.geometry && matches(f.geometry.coordinates)) return true;
+        }
+        return false;
+    }
+
+    const _DRAW_MARKER_STYLE = {
+        radius: 6, color: '#b45309', fillColor: '#fff',
+        fillOpacity: 1, weight: 2.5, pane: 'markerPane',
+    };
+
+    function _clearDrawLine() {
+        if (_drawLineMarkerA) { map.removeLayer(_drawLineMarkerA); _drawLineMarkerA = null; }
+        if (_drawLineMarkerB) { map.removeLayer(_drawLineMarkerB); _drawLineMarkerB = null; }
+        if (_drawLinePrevLayer) { map.removeLayer(_drawLinePrevLayer); _drawLinePrevLayer = null; }
+        _drawLinePointA = null;
+    }
+
+    function _clearPendingLine() {
+        if (_pendingCustomLine) { map.removeLayer(_pendingCustomLine); _pendingCustomLine = null; }
+    }
+
+    function toggleDrawLine() {
+        const btn = document.getElementById('draw-line-btn');
+        if (_drawLineActive) {
+            // cancel
+            _drawLineActive = false;
+            btn.classList.remove('active');
+            document.body.classList.remove('draw-mode');
+            map.off('click', _onDrawLineClick);
+            map.off('mousemove', _onDrawLinePreview);
+            _clearDrawLine();
+            _clearPendingLine();
+            setStatus('Draw cancelled');
+            return;
+        }
+        _drawLineActive = true;
+        btn.classList.add('active');
+        document.body.classList.add('draw-mode');
+        _clearDrawLine();
+        setStatus('Click first anchor point…');
+        map.on('click', _onDrawLineClick);
+    }
+
+    function _onDrawLinePreview(e) {
+        if (!_drawLinePointA) return;
+        const a = _drawLinePointA;
+        if (_drawLinePrevLayer) map.removeLayer(_drawLinePrevLayer);
+        _drawLinePrevLayer = L.polyline([[a.lat, a.lng], [e.latlng.lat, e.latlng.lng]], {
+            color: '#b45309', weight: 2, opacity: 0.5, dashArray: '5 5', pane: 'linesPane',
+        }).addTo(map);
+    }
+
+    function _onDrawLineClick(e) {
+        if (!_drawLinePointA) {
+            // First click — place marker A
+            _drawLinePointA = e.latlng;
+            _drawLineMarkerA = L.circleMarker([e.latlng.lat, e.latlng.lng], _DRAW_MARKER_STYLE).addTo(map);
+            setStatus('Click second anchor point…');
+            map.on('mousemove', _onDrawLinePreview);
+        } else {
+            // Second click — finalize
+            const a = _drawLinePointA;
+            const b = e.latlng;
+
+            map.off('click', _onDrawLineClick);
+            map.off('mousemove', _onDrawLinePreview);
+            _drawLineActive = false;
+            document.body.classList.remove('draw-mode');
+            document.getElementById('draw-line-btn').classList.remove('active');
+
+            // Replace the live preview with a static pending line that stays until results arrive
+            if (_drawLinePrevLayer) { map.removeLayer(_drawLinePrevLayer); _drawLinePrevLayer = null; }
+            _pendingCustomLine = L.layerGroup([
+                L.polyline([[a.lat, a.lng], [b.lat, b.lng]], {
+                    color: 'white', weight: 5.5, opacity: 1, pane: 'linesPane',
+                }),
+                L.polyline([[a.lat, a.lng], [b.lat, b.lng]], {
+                    color: '#b45309', weight: 3, opacity: 0.6,
+                    dashArray: '6 5', pane: 'linesPane',
+                }),
+            ]).addTo(map);
+            _drawLineMarkerB = L.circleMarker([b.lat, b.lng], _DRAW_MARKER_STYLE).addTo(map);
+
+            _runCustomPairAnalysis(a.lat, a.lng, b.lat, b.lng);
+        }
+    }
+
+    async function _runCustomPairAnalysis(latA, lonA, latB, lonB) {
+        const clearanceM = parseFloat(document.getElementById('clearanceM').value) || 1.0;
+        const qs = new URLSearchParams({
+            lat_a: latA, lon_a: lonA, lat_b: latB, lon_b: lonB,
+            clearance_m: clearanceM,
+        });
+
+        setLoading(true);
+        setStatus('Analysing custom line…');
+
+        try {
+            const resp = await fetch('/spot/pair?' + qs);
+            if (!resp.ok) {
+                const body = await resp.json().catch(() => ({}));
+                throw new Error(body.detail || `HTTP ${resp.status}`);
+            }
+
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                buf += decoder.decode(value, {stream: true});
+                const parts = buf.split('\n\n');
+                buf = parts.pop();
+                for (const part of parts) {
+                    const line = part.trim();
+                    if (!line.startsWith('data: ')) continue;
+                    let msg;
+                    try { msg = JSON.parse(line.slice(6)); } catch { continue; }
+                    if (msg.error) throw new Error(msg.error);
+                    if (msg.status) setStatus(msg.status);
+                    if (msg.pct != null) setProgress(msg.pct);
+                    if (msg.result) {
+                        _showCustomPairResult(msg.result, latA, lonA, latB, lonB);
+                    }
+                }
+            }
+        } catch (err) {
+            setStatus('Error: ' + err.message);
+            _clearDrawLine();
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    function _showCustomPairResult(feature, latA, lonA, latB, lonB) {
+        const p = feature.properties;
+        const coords = [[lonA, latA], [lonB, latB]];
+        const blocked = p.los_blocked;
+
+        _clearPendingLine();
+
+        // Dedup: skip if this line already exists on screen (within 5 m tolerance).
+        if (_isDuplicateLine(latA, lonA, latB, lonB)) {
+            const distStr = p.distance_m >= 1000
+                ? (p.distance_m / 1000).toFixed(2) + ' km'
+                : Math.round(p.distance_m) + ' m';
+            setStatus(`Custom line: ${distStr} — already on map`);
+            if (_drawLineMarkerA) { map.removeLayer(_drawLineMarkerA); _drawLineMarkerA = null; }
+            if (_drawLineMarkerB) { map.removeLayer(_drawLineMarkerB); _drawLineMarkerB = null; }
+            return;
+        }
+
+        // Compute cmap colour upfront from the extended global scale (including this new line).
+        const allDists = [
+            ...(_currentFeatures || []).map(f => f.properties.distance_m),
+            ..._customLineData.map(({feature: f}) => f.properties.distance_m),
+            p.distance_m,
+        ];
+        const newMin = Math.min(...allDists);
+        const newMax = Math.max(...allDists);
+        const tNew = newMax > newMin ? (p.distance_m - newMin) / (newMax - newMin) : 0.5;
+        const lineColor = blocked ? '#ef4444' : cmapColor(tNew);
+
+        // Custom lines always use long dashes to stay visually distinct from solid search results.
+        const committedGroup = L.layerGroup([
+            L.polyline([[latA, lonA], [latB, lonB]], {
+                color: 'white', weight: 5.5, opacity: 1, dashArray: '14 7', pane: 'linesPane',
+            }),
+            L.polyline([[latA, lonA], [latB, lonB]], {
+                color: lineColor, weight: 3, opacity: 0.9, dashArray: '14 7', pane: 'linesPane',
+            }),
+        ]).addTo(map);
+        _customLineData.push({group: committedGroup, feature});
+
+        // Make the coloured polyline interactive; stamp feature so _dimOthers can read it.
+        const fakeLyr = committedGroup.getLayers()[1];
+        fakeLyr.bindTooltip(buildTooltip(p), {
+            direction: 'top', sticky: true, className: 'sl-tip', opacity: 1,
+        });
+        fakeLyr.feature = feature;
+        fakeLyr.on('click', () => showDetail(p, coords, fakeLyr));
+
+        // Add blocked warning to properties for detail panel
+        if (blocked || p.blocked_by_landuse) p._custom_blocked_label = 'Blocked';
+
+        // Recompute global scale (widens range to include this line, recolours all layers,
+        // draws legend) BEFORE showDetail so _dimOthers sees correct _lastRealMin/Max.
+        _updateColorScale();
+
+        showDetail(p, coords, fakeLyr);
+
+        // Remove the temporary markers now that committed line is drawn
+        if (_drawLineMarkerA) { map.removeLayer(_drawLineMarkerA); _drawLineMarkerA = null; }
+        if (_drawLineMarkerB) { map.removeLayer(_drawLineMarkerB); _drawLineMarkerB = null; }
+
+        const distStr = p.distance_m >= 1000
+            ? (p.distance_m / 1000).toFixed(2) + ' km'
+            : Math.round(p.distance_m) + ' m';
+        const stateLabel = blocked ? 'blocked' : 'clear';
+        setStatus(`Custom line: ${distStr} — ${stateLabel}`);
+    }
+
     // ── noUiSlider ───────────────────────────────────────────────────────────────
     const sliderEl = document.getElementById('length-slider');
     noUiSlider.create(sliderEl, {
@@ -1610,10 +2129,10 @@
                     if (msg.pct != null) setProgress(msg.pct);
                     if (msg.result) {
                         const geojson = msg.result;
-                        const {realMin, realMax} = renderResults(geojson, minM, maxM);
+                        renderResults(geojson, minM, maxM);
                         const n = geojson.features.length;
                         setStatus(`${n} pair${n !== 1 ? 's' : ''} found`);
-                        drawLegend(realMin, realMax);
+                        _updateColorScale(); // widens range to include any existing custom lines
                         showSlopeLegend(OV_STATE.slope);
                         updateTerrainLayer(_currentBbox);
                         updateContourLayer(_currentBbox);
@@ -1838,7 +2357,30 @@
         overlay.addEventListener('mouseleave', _hideCursor);
     }
 
+    let _collapsedPair = null; // saved state when panel is collapsed via tab
+
+    function _showDetailWrap() {
+        document.getElementById('panel-detail-wrap').style.display = 'block';
+        document.getElementById('detail-reopen-tab').style.display = 'none';
+    }
+
+    function _hideDetailWrap(keepReopen = false) {
+        document.getElementById('panel-detail-wrap').style.display = 'none';
+        document.getElementById('detail-reopen-tab').style.display = keepReopen ? 'flex' : 'none';
+    }
+
     function showDetail(p, coords, lyr) {
+        // If reopening the same pair after collapse, just restore the panel
+        if (_collapsedPair && _collapsedPair.p === p) {
+            _collapsedPair = null;
+            _selectedLayer = lyr;
+            if (lyr) _dimOthers(lyr);
+            _showDetailWrap();
+            map.on('mousemove', _onMapHover);
+            map.on('mouseout', _hideCursor);
+            return;
+        }
+        _collapsedPair = null;
         if (_selectedLayer) _restoreAll();
         map.off('mousemove', _onMapHover);
         map.off('mouseout', _hideCursor);
@@ -1850,7 +2392,31 @@
         _catState = null;
         _lastCatT = 0.5;
         document.getElementById('detail-content').innerHTML = buildDetailHtml(p, coords);
-        document.getElementById('panel-detail').style.display = 'block';
+        _showDetailWrap();
+        _attachElevHover();
+        _updateCatenaryAt(0.5);
+        map.on('mousemove', _onMapHover);
+        map.on('mouseout', _hideCursor);
+    }
+
+    // Collapse (< tab): deselects line but saves state; shows > reopen tab
+    function collapseDetail() {
+        map.off('mousemove', _onMapHover);
+        map.off('mouseout', _hideCursor);
+        _collapsedPair = _currentDetailPair;
+        _restoreAll();
+        _removeElevMarker();
+        document.getElementById('elev-tip').style.display = 'none';
+        _hideDetailWrap(true);
+    }
+
+    // Reopen (> tab): restores the collapsed panel
+    function reopenDetail() {
+        if (!_collapsedPair) return;
+        const {p, coords} = _collapsedPair;
+        _collapsedPair = null;
+        document.getElementById('detail-content').innerHTML = buildDetailHtml(p, coords);
+        _showDetailWrap();
         _attachElevHover();
         _updateCatenaryAt(0.5);
         map.on('mousemove', _onMapHover);
@@ -1861,6 +2427,7 @@
         map.off('mousemove', _onMapHover);
         map.off('mouseout', _hideCursor);
         _restoreAll();
+        _collapsedPair = null;
         _currentDetailCoords = null;
         _currentDetailPair = null;
         _currentDetailPairIdx = -1;
@@ -1868,8 +2435,12 @@
         _catState = null;
         _removeElevMarker();
         document.getElementById('elev-tip').style.display = 'none';
-        document.getElementById('panel-detail').style.display = 'none';
+        _hideDetailWrap(false);
         document.getElementById('detail-content').innerHTML = '';
+    }
+
+    function hideLegend() {
+        document.getElementById('legend-wrap').style.display = 'none';
     }
 
     function featureColor(f, fallback = '#64748b') {
@@ -1953,6 +2524,39 @@
 
     let _selectedHighlightOutline = null;
     let _selectedHighlightColor = null;
+    let _anchorLabelA = null;
+    let _anchorLabelB = null;
+
+    function _anchorLabelIcon(letter, color) {
+        // Label circle (light bg, coloured border + letter) floating above a small
+        // white dot at the coordinate, separated by a 3 px gap.
+        // iconAnchor centres on the dot so the dot sits exactly on the anchor point.
+        return L.divIcon({
+            className: '',
+            // Layout: 20px circle + 3px gap + 8px dot = 31px total height
+            // iconAnchor y = 20 + 3 + 4 = 27  (centre of the dot)
+            iconAnchor: [10, 27],
+            iconSize: [20, 31],
+            html: `<div style="pointer-events:none;display:flex;flex-direction:column;align-items:center;width:20px">
+  <div style="
+    width:20px;height:20px;border-radius:50%;
+    background:rgba(250,246,240,0.97);
+    border:2px solid ${color};
+    box-shadow:0 2px 8px rgba(0,0,0,0.18);
+    display:flex;align-items:center;justify-content:center;
+    font-family:system-ui,sans-serif;font-size:12px;font-weight:800;
+    color:${color};line-height:1;
+  ">${letter}</div>
+  <div style="height:3px;"></div>
+  <div style="
+    width:8px;height:8px;border-radius:50%;
+    background:#fff;
+    border:2px solid ${color};
+    box-shadow:0 1px 3px rgba(0,0,0,0.2);
+  "></div>
+</div>`,
+        });
+    }
 
     function _dimOthers(selectedLyr) {
         // Dim the entire linesPane with one CSS opacity change — no per-path iteration.
@@ -1964,17 +2568,32 @@
             ? (f.properties.distance_m - _lastRealMin) / (_lastRealMax - _lastRealMin)
             : 0.5;
         _selectedHighlightOutline = L.geoJSON(f, {
+            interactive: false,
             style: {
                 color: 'white', weight: 9, opacity: 1.0,
                 dashArray: f.properties.over_water ? '9 7' : null, pane: 'selectedPane'
             },
         }).addTo(map);
         _selectedHighlightColor = L.geoJSON(f, {
+            interactive: false,
             style: {
                 color: cmapColor(t), weight: 5.5, opacity: 1.0,
                 dashArray: f.properties.over_water ? '9 7' : null, pane: 'selectedPane'
             },
         }).addTo(map);
+
+        // A / B labels at the anchor endpoints, coloured as the line
+        const lineColor = f.properties.los_blocked ? '#ef4444' : cmapColor(t);
+        const coords = f.geometry && f.geometry.coordinates;
+        if (coords && coords.length >= 2) {
+            const [[lonA, latA], [lonB, latB]] = coords;
+            _anchorLabelA = L.marker([latA, lonA], {
+                icon: _anchorLabelIcon('A', lineColor), pane: 'markerPane', interactive: false,
+            }).addTo(map);
+            _anchorLabelB = L.marker([latB, lonB], {
+                icon: _anchorLabelIcon('B', lineColor), pane: 'markerPane', interactive: false,
+            }).addTo(map);
+        }
     }
 
     function _restoreAll() {
@@ -1987,6 +2606,8 @@
             map.removeLayer(_selectedHighlightColor);
             _selectedHighlightColor = null;
         }
+        if (_anchorLabelA) { map.removeLayer(_anchorLabelA); _anchorLabelA = null; }
+        if (_anchorLabelB) { map.removeLayer(_anchorLabelB); _anchorLabelB = null; }
         _selectedLayer = null;
     }
 
@@ -2127,7 +2748,7 @@
         terrain = smoothed;
         W = W || 292;
         H = H || 130;
-        const PL = 8, PR = 8, PT = 8, PB = 32;
+        const PL = 2, PR = 2, PT = 8, PB = 32;
         const iW = W - PL - PR, iH = H - PT - PB;
         const xAxisY = PT + iH;
         const rng = mx - mn;
@@ -2361,29 +2982,100 @@
         return `<div style="margin-top:4px;padding:7px 8px;background:rgba(0,0,0,0.03);border-radius:5px;border:1px solid rgba(180,140,90,0.15)">${inner}</div>`;
     }
 
-    function buildDetailHtml(p, coords) {
-        const water = p.over_water ? '<span class="water-tag">Water crossing</span>' : '';
+    // ── Anchor Material Symbol icon ───────────────────────────────────────────────
+    // Returns the Material Symbols Outlined ligature name for an anchor kind.
+    // Handles tree leaf-type/cycle variations; falls back to not_listed_location.
+    function anchorIcon(kind, tags) {
+        tags = tags || {};
+        const MAP = {
+            tree: 'nature',
+            mast: 'cell_tower',
+            flagpole: 'flag',
+            street_lamp: 'table_lamp',
+            pylon: 'gondola_lift',
+            custom: 'not_listed_location',
+        };
+        if (kind === 'tree') {
+            const lt = tags.leaf_type || '';
+            const lc = tags.leaf_cycle || '';
+            if (lt === 'needleleaved' || lc === 'evergreen') return 'park';
+            if (lt === 'mixed' || lc === 'mixed') return 'forest';
+            return 'nature';
+        }
+        return MAP[kind] || 'not_listed_location';
+    }
 
-        let bearingHtml = '', copyA = '', copyB = '';
+    function buildDetailHtml(p, coords) {
+        // ── Coords-dependent data ────────────────────────────────────────────────
+        let deg = null, copyA = '', copyB = '';
         if (coords && coords.length >= 2) {
             const [[lonA, latA], [lonB, latB]] = coords;
-            const deg = computeBearing(lonA, latA, lonB, latB);
-            bearingHtml = `<div style="display:flex;align-items:center;gap:5px;margin:3px 0 6px;font-size:12px;color:#78716c">
-      ${compassSvg(deg)}
-      <span><b style="color:#292524">${Math.round(deg)}°</b> ${cardinal(deg)}</span>
-    </div>`;
+            deg = computeBearing(lonA, latA, lonB, latB);
             copyA = `<button class="copy-btn" onclick="copyCoords('${latA.toFixed(6)},${lonA.toFixed(6)}',this)">Copy</button>`;
             copyB = `<button class="copy-btn" onclick="copyCoords('${latB.toFixed(6)},${lonB.toFixed(6)}',this)">Copy</button>`;
         }
 
+        // ── Slope direction ──────────────────────────────────────────────────────
         const rise = (p.elev_b != null && p.elev_a != null) ? (p.elev_b - p.elev_a) : 0;
         const sDir = p.slope_deg != null ? (rise > 0.5 ? '↗' : rise < -0.5 ? '↘' : '→') : '';
-        const slopeSuffix = p.slope_deg != null
-            ? ` <span style="font-size:12px;font-weight:400;color:#78716c">${sDir}${p.slope_deg}°</span>`
+        const slopeTxt = p.slope_deg != null ? ` <span class="slope-suf">${sDir}${p.slope_deg}°</span>` : '';
+
+        // ── Anchor summary line ──────────────────────────────────────────────────
+        const iconA = anchorIcon(p.anchor_a_kind, p.anchor_a_tags);
+        const iconB = anchorIcon(p.anchor_b_kind, p.anchor_b_tags);
+        const elevA = p.elev_a != null ? `<span class="anc-elev">${Math.round(p.elev_a)} m</span>` : '';
+        const elevB = p.elev_b != null ? `<span class="anc-elev">${Math.round(p.elev_b)} m</span>` : '';
+        const compassBtn = deg != null
+            ? `<button class="compass-btn" onclick="focusLine()" title="Focus · ${Math.round(deg)}° ${cardinal(deg)}">${compassSvg(deg)}</button>`
             : '';
+        const waterBadge = p.over_water ? `<div style="margin-bottom:5px">${'<span class="water-tag">Water crossing</span>'}</div>` : '';
+        const blockedBadge = p._custom_blocked_label
+            ? `<div style="margin-bottom:5px"><span style="display:inline-block;background:#fee2e2;color:#991b1b;border:1px solid #fecaca;border-radius:3px;padding:1px 7px;font-size:11px;font-weight:600">⚠ ${_escXml(p._custom_blocked_label)}</span></div>`
+            : (p.custom_pair && !p.los_blocked ? `<div style="margin-bottom:5px"><span style="display:inline-block;background:#d1fae5;color:#065f46;border:1px solid #a7f3d0;border-radius:3px;padding:1px 7px;font-size:11px;font-weight:600">✓ Clear</span></div>` : '');
+
+        const summaryLine = `<div class="anchor-summary-line">
+      <i class="anc-icon material-symbols-rounded">${iconA}</i>
+      ${elevA}
+      <div class="line-spine"><span class="metrics-pill">${p.distance_m} m${slopeTxt}</span></div>
+      ${elevB}
+      <i class="anc-icon material-symbols-rounded">${iconB}</i>
+      ${compassBtn}
+    </div>`;
+
+        // ── Anchor tag rows (always open) ────────────────────────────────────────
+        const _tagRow = (label, id, kind, tags, copyBtn) => {
+            tags = tags || {};
+            const parts = [];
+            const addT = (key, ...names) => {
+                for (const n of names) if (tags[n]) { parts.push(`<span class="tag-key">${key}</span> ${_escXml(tags[n])}`); return; }
+            };
+            addT('Species', 'species', 'species:en');
+            addT('Name', 'name');
+            addT('Circ', 'circumference');
+            addT('Height', 'height');
+            const kindStr = kindLabel(kind);
+            const tagsHtml = parts.length
+                ? `<span class="at-tags"><b>${kindStr}</b><span style="color:rgba(120,90,50,0.4)"> · </span>${parts.join('<span style="color:rgba(120,90,50,0.4)"> · </span>')}</span>`
+                : `<span class="at-tags"><b>${kindStr || '—'}</b></span>`;
+            const osmLink = id > 0
+                ? `<a href="https://www.openstreetmap.org/node/${id}" target="_blank">OSM↗</a>`
+                : '';
+            return `<div class="anchor-tag-row">
+        <span class="at-label">${label}</span>
+        ${tagsHtml}
+        <div class="at-actions">${copyBtn || ''}${osmLink}</div>
+      </div>`;
+        };
+
+        const anchorTagsSection = `<div class="anchor-tags">
+      ${_tagRow('A', p.anchor_a_id, p.anchor_a_kind, p.anchor_a_tags, copyA)}
+      ${_tagRow('B', p.anchor_b_id, p.anchor_b_kind, p.anchor_b_tags, copyB)}
+    </div>`;
+
+        // ── Corridor features (unchanged) ────────────────────────────────────────
         const feats = p.corridor_features || [];
         const corridorFeats = feats.filter(f => !_PLACE_CATS.has(f.category));
-        const placeFeats = feats.filter(f => _PLACE_CATS.has(f.category));
+        const placeFeats    = feats.filter(f =>  _PLACE_CATS.has(f.category));
         const _collapseCard = (title, list, open) => {
             if (!list.length) return '';
             const openAttr = open ? ' open' : '';
@@ -2393,25 +3085,46 @@
                 buildCorridorFeatureList(list) + `</details>`;
         };
         const corridorSection = _collapseCard('In corridor', corridorFeats, true) +
-            _collapseCard('Places', placeFeats, false);
+                                _collapseCard('Places', placeFeats, false);
 
         return `<div class="sl-detail">
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:2px">
-      <div>
-        <div class="dist">${water}${p.distance_m} m${slopeSuffix}</div>
-        <div class="sub">${kindLabel(p.anchor_a_kind)} → ${kindLabel(p.anchor_b_kind)}</div>
-      </div>
-      <button class="focus-btn" onclick="focusLine()">⌖ Focus</button>
-    </div>
-    ${bearingHtml}
+    ${blockedBadge}${waterBadge}${summaryLine}
+    ${anchorTagsSection}
     ${elevSvg(p.terrain_elevs, p.elev_a, p.elev_b, p.corridor_features, p.distance_m)}
     ${corridorSection}
-    ${anchorCard('Anchor A', p.anchor_a_id, p.anchor_a_kind, p.anchor_a_tags, copyA, p.anchor_a_terrain)}
-    ${anchorCard('Anchor B', p.anchor_b_id, p.anchor_b_kind, p.anchor_b_tags, copyB, p.anchor_b_terrain)}
   </div>`;
     }
 
-    // ── Legend ───────────────────────────────────────────────────────────────────
+    // ── Legend & colour scale ────────────────────────────────────────────────────
+    // Recompute the global distance→colour scale from ALL lines on screen
+    // (search results + committed custom lines) and re-style every layer.
+    function _updateColorScale() {
+        const dists = [];
+        (_currentFeatures || []).forEach(f => dists.push(f.properties.distance_m));
+        _customLineData.forEach(({feature: f}) => dists.push(f.properties.distance_m));
+        if (!dists.length) return;
+
+        const globalMin = Math.min(...dists);
+        const globalMax = Math.max(...dists);
+        _lastRealMin = globalMin;
+        _lastRealMax = globalMax;
+
+        const tOf = d => globalMax > globalMin ? (d - globalMin) / (globalMax - globalMin) : 0.5;
+
+        // Re-style regular lines
+        if (_coloredGeoJson) {
+            _coloredGeoJson.setStyle(f => ({ color: cmapColor(tOf(f.properties.distance_m)) }));
+        }
+
+        // Re-style custom lines: blocked → red, clear → cmap
+        _customLineData.forEach(({group, feature: f}) => {
+            const col = f.properties.los_blocked ? '#ef4444' : cmapColor(tOf(f.properties.distance_m));
+            group.getLayers()[1].setStyle({ color: col });
+        });
+
+        drawLegend(Math.round(globalMin), Math.round(globalMax));
+    }
+
     function _fillBar(canvasId, colorFn) {
         const canvas = document.getElementById(canvasId);
         const w = canvas.offsetWidth || 160;
@@ -2424,7 +3137,7 @@
     }
 
     function drawLegend(minM, maxM) {
-        document.getElementById('legend').style.display = 'block';
+        document.getElementById('legend-wrap').style.display = 'block';
         document.getElementById('leg-min').textContent = minM + ' m';
         document.getElementById('leg-max').textContent = maxM + ' m';
         _fillBar('legend-bar', cmapColor);
@@ -2561,22 +3274,22 @@
         if (xw < 0.02 * d || xw > 0.98 * d) return null;
         const L1i = L0 * (xw / d);
         const Hi = H0 || 2000;
-        // Taut-string approximation: rope slopes downward from A to walker → V1 is negative for level/near-level spans
-        const V1i = Hi * h / d - W * (d - xw) / d;
+        // Taut-string approximation: V1 ≈ H·(h/d) + W·(d−xw)/d  (downward tension component at A)
+        const V1i = Hi * h / d + W * (d - xw) / d;
         const res = _nr3(
             (H, V1, L1) => {
                 if (H < 1 || L1 < 0.005 * L0 || L1 > 0.995 * L0) return [1e9, 1e9, 1e9];
-                const L2 = L0 - L1, V2 = V1 - w * L1 + W;
+                const L2 = L0 - L1, V2 = V1 - w * L1 - W;
                 const e1 = _catAt(H, V1, L1, w, EA);
                 const e2 = _catAt(H, V2, L2, w, EA);
-                return [e1.x - xw, e2.x - (d - xw), e1.y + e2.y - h];
+                return [e1.x - xw, e2.x - (d - xw), e1.y + e2.y + h];
             },
             Hi, V1i, L1i,
         );
         if (!res) return null;
         const [H, V1, L1] = res;
         if (H < 0 || L1 <= 0 || L1 >= L0) return null;
-        const L2 = L0 - L1, V2 = V1 - w * L1 + W;
+        const L2 = L0 - L1, V2 = V1 - w * L1 - W;
         const walkerPt = _catAt(H, V1, L1, w, EA);
 
         // Sample WALKER_SAMPLES points evenly along natural length (post-solve curve reconstruction)
@@ -2658,7 +3371,7 @@
         // Physical → SVG pixel coordinates (shared by locus and catenary)
         const toSvg = (xm, ym) => [
             (padLeft + (xm / d) * innerW).toFixed(2),
-            (padTop + innerH - ((ym + elevA - minElev) / elevRange) * innerH).toFixed(2),
+            (padTop + innerH - ((elevA - ym - minElev) / elevRange) * innerH).toFixed(2),
         ];
 
         // Recompute unloaded natural length when params or pair change; also redraw locus

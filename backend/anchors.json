@@ -1,4 +1,9 @@
 {
+  "": {
+    "": {
+      "icon": "not_listed_location"
+    }
+  },
   "aerialway": {
     "pylon": {
       "icon": "gondola_lift"
