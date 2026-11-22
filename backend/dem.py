@@ -3,6 +3,7 @@
 Cache layout:
   CACHE_ROOT/dem/tinitaly/N46_E011.tif   1°×1° at 10 m, WGS-84
   CACHE_ROOT/dem/glo30/N46_E011.tif      1°×1° at 30 m, WGS-84
+  CACHE_ROOT/dem/pat/662_5101.tif         1 km×1 km at 1 m, EPSG:25832 (Trentino, overrides the above)
   CACHE_ROOT/slope/{z}/{x}/{y}.png       derived, safe to wipe
 """
 from __future__ import annotations
@@ -12,6 +13,7 @@ import math
 import os
 import time
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Lock
 from typing import Optional
@@ -20,17 +22,22 @@ import numpy as np
 import requests
 from PIL import Image
 import rasterio
+import rasterio.transform
 from rasterio.crs import CRS
 from rasterio.enums import Resampling
 from rasterio.windows import from_bounds as win_from_bounds
-from rasterio.warp import calculate_default_transform, reproject
+from rasterio.warp import calculate_default_transform, reproject, transform as _warp_transform
 from rasterio.warp import Resampling as WarpResampling
 
 os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
 os.environ.setdefault("CPL_VSIL_CURL_ALLOWED_EXTENSIONS", ".tif")
 
-CACHE_ROOT = Path(os.environ.get("SPOTLINES_CACHE_DIR", "/media/twister/WD/.cache/spotfinder"))
+_DRIVE_CACHE = Path("/media/twister/WD/.cache/spotfinder")
+# Use the external drive when mounted, else a local dir (Open-Meteo fallback is ~1000x slower).
+CACHE_ROOT = Path(os.environ.get("SPOTLINES_CACHE_DIR") or (
+    _DRIVE_CACHE if _DRIVE_CACHE.exists() else Path.home() / ".cache" / "spotfinder"))
 _DEM_DIR   = CACHE_ROOT / "dem"
+_DEM_DIR.mkdir(parents=True, exist_ok=True)
 
 _CRS_WGS84 = CRS.from_epsg(4326)
 
@@ -189,6 +196,124 @@ def _is_nodata_val(val: float, nodata: float) -> bool:
     return val == nodata
 
 
+# ── Trentino 1 m DTM (Provincia autonoma di Trento ImageServer) ───────────────
+
+_PAT_URL = "https://geoservices.provincia.tn.it/agol/rest/services/raster/DTM/ImageServer/exportImage"
+_PAT_EXT = (611989.0, 5057990.0, 732009.0, 5158010.0)  # xmin, ymin, xmax, ymax, EPSG:25832
+_PAT_TILE = 1000        # m; tiles are UTM-aligned so 1 px = 1 m with no resampling
+_PAT_MAX_TILES = 150    # bigger searches fall back to TINItaly (~2 MB per tile)
+_PAT_NODATA = -9999
+_PAT_ENABLED = os.environ.get("SPOTLINES_PAT_DTM", "1") != "0"
+_CRS_UTM32 = CRS.from_epsg(25832)
+
+
+def _pat_tile_path(tx: int, ty: int) -> Path:
+    return _DEM_DIR / "pat" / f"{tx}_{ty}.tif"
+
+
+def _pat_download(tx: int, ty: int) -> Optional[Path]:
+    dest = _pat_tile_path(tx, ty)
+    if dest.exists():
+        return dest
+    x0, y0 = tx * _PAT_TILE, ty * _PAT_TILE
+    try:
+        resp = requests.get(_PAT_URL, params={
+            "bbox": f"{x0},{y0},{x0 + _PAT_TILE},{y0 + _PAT_TILE}",
+            "bboxSR": 25832, "imageSR": 25832,
+            "size": f"{_PAT_TILE},{_PAT_TILE}",
+            "format": "tiff", "pixelType": "S16",   # service values are whole metres, 61..3761
+            "interpolation": "RSP_NearestNeighbor", "noData": _PAT_NODATA, "f": "image",
+        }, timeout=120)
+        resp.raise_for_status()
+        if "tiff" not in resp.headers.get("Content-Type", ""):
+            return None
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(".part")
+        tmp.write_bytes(resp.content)
+        tmp.replace(dest)
+        return dest
+    except Exception as exc:
+        print(f"PAT DTM tile failed ({tx},{ty}): {exc}", flush=True)
+        return None
+
+
+def _pat_fetch_tiles(keys: list[tuple[int, int]]) -> dict[tuple[int, int], Optional[Path]]:
+    with ThreadPoolExecutor(8) as pool:
+        return dict(zip(keys, pool.map(lambda k: _pat_download(*k), keys)))
+
+
+def _pat_keys_for_bbox(south: float, west: float, north: float, east: float) -> list[tuple[int, int]]:
+    xs, ys = _warp_transform(_CRS_WGS84, _CRS_UTM32, [west, east, west, east], [south, south, north, north])
+    x0, x1 = max(min(xs), _PAT_EXT[0]), min(max(xs), _PAT_EXT[2])
+    y0, y1 = max(min(ys), _PAT_EXT[1]), min(max(ys), _PAT_EXT[3])
+    if not _PAT_ENABLED or x0 >= x1 or y0 >= y1:
+        return []
+    keys = [(tx, ty)
+            for tx in range(int(x0 // _PAT_TILE), int(x1 // _PAT_TILE) + 1)
+            for ty in range(int(y0 // _PAT_TILE), int(y1 // _PAT_TILE) + 1)]
+    return keys if len(keys) <= _PAT_MAX_TILES else []
+
+
+def _sample_pat(lats: list[float], lons: list[float], result: list[Optional[float]]) -> None:
+    """Fill result[i] from the Trentino 1 m DTM where it has data; leave the rest None."""
+    if not _PAT_ENABLED or not lats:
+        return
+    xs, ys = _warp_transform(_CRS_WGS84, _CRS_UTM32, lons, lats)
+    xs, ys = np.asarray(xs), np.asarray(ys)
+    inside = (xs >= _PAT_EXT[0]) & (xs < _PAT_EXT[2]) & (ys >= _PAT_EXT[1]) & (ys < _PAT_EXT[3])
+    if not inside.any():
+        return
+    tx = np.floor(xs / _PAT_TILE).astype(int)
+    ty = np.floor(ys / _PAT_TILE).astype(int)
+    idx = np.flatnonzero(inside)
+    tiles: dict[tuple[int, int], list[int]] = {}
+    for i, k in zip(idx, zip(tx[idx], ty[idx])):
+        tiles.setdefault((int(k[0]), int(k[1])), []).append(int(i))
+    if len(tiles) > _PAT_MAX_TILES:
+        return
+    paths = _pat_fetch_tiles(list(tiles))
+    for key, ids in tiles.items():
+        path = paths[key]
+        if path is None:
+            continue
+        ids = np.asarray(ids)
+        with rasterio.open(path) as ds:
+            arr = ds.read(1)
+            t = ds.transform
+            col = np.clip(((xs[ids] - t.c) / t.a).astype(int), 0, arr.shape[1] - 1)
+            row = np.clip(((ys[ids] - t.f) / t.e).astype(int), 0, arr.shape[0] - 1)
+            vals = arr[row, col]
+        for i, v in zip(ids, vals):
+            if v != _PAT_NODATA:
+                result[int(i)] = float(v)
+
+
+def _overlay_pat(
+    elev: np.ndarray, south: float, west: float, north: float, east: float, px_m: float,
+) -> None:
+    """Overwrite elev (WGS-84 grid over the bbox) in place with Trentino 1 m DTM where it has data."""
+    keys = _pat_keys_for_bbox(south, west, north, east)
+    if not keys:
+        return
+    H, W = elev.shape
+    pat = np.full((H, W), np.nan, np.float32)
+    dst_transform = rasterio.transform.from_bounds(west, south, east, north, W, H)
+    # Average when downsampling so 1 m detail (and the whole-metre steps) blend instead of aliasing.
+    resampling = WarpResampling.average if px_m > 1.5 else WarpResampling.bilinear
+    for path in _pat_fetch_tiles(keys).values():
+        if path is None:
+            continue
+        with rasterio.open(path) as ds:
+            reproject(
+                rasterio.band(ds, 1), pat,
+                src_nodata=_PAT_NODATA, dst_nodata=np.nan,
+                dst_transform=dst_transform, dst_crs=_CRS_WGS84,
+                resampling=resampling, init_dest_nodata=False,  # accumulate tiles into pat
+            )
+    ok = np.isfinite(pat)
+    elev[ok] = pat[ok]
+
+
 def dem_cache_available() -> bool:
     """Return True if the local DEM cache directory exists and is accessible."""
     return _DEM_DIR.exists()
@@ -199,6 +324,9 @@ def prefetch_bbox(south: float, west: float, north: float, east: float) -> None:
     for lat_f in range(int(math.floor(south)), int(math.floor(north)) + 1):
         for lon_f in range(int(math.floor(west)), int(math.floor(east)) + 1):
             _get_dem_tile(lat_f, lon_f)
+    keys = _pat_keys_for_bbox(south, west, north, east)
+    if keys:
+        _pat_fetch_tiles(keys)
 
 
 def get_elevation_at_points(
@@ -210,10 +338,13 @@ def get_elevation_at_points(
     All tiles are guaranteed to be in WGS-84 (ensured at download time).
     """
     result: list[Optional[float]] = [None] * len(lats)
+    _sample_pat(lats, lons, result)   # Trentino 1 m LiDAR first; the rest falls through
 
     # Group point indices by the 1°×1° tile they fall in
     groups: dict[tuple[int, int], list[int]] = {}
     for i, (lat, lon) in enumerate(zip(lats, lons)):
+        if result[i] is not None:
+            continue
         key = (int(math.floor(lat)), int(math.floor(lon)))
         groups.setdefault(key, []).append(i)
 
@@ -352,9 +483,7 @@ def _load_slope_data(
                         opened.append(rasterio.open(p))
                     except Exception:
                         pass
-        if not opened:
-            return None
-        arrays: list[np.ndarray] = []
+        arrays: list[np.ndarray] = [np.full((H, W), np.nan, np.float32)]
         for ds in opened:
             win = win_from_bounds(west, south, east, north, ds.transform)
             arr = ds.read(1, window=win, out_shape=(H, W),
@@ -365,7 +494,12 @@ def _load_slope_data(
                 nd_f32 = np.float32(ds.nodata)
                 arr[np.isnan(arr) if np.isnan(nd_f32) else (arr == nd_f32)] = np.nan
             arrays.append(arr)
-        elev = np.nanmean(np.stack(arrays, axis=0), axis=0) if len(arrays) > 1 else arrays[0]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN cells outside coverage
+            elev = np.nanmean(np.stack(arrays, axis=0), axis=0)
+        _overlay_pat(elev, south, west, north, east, min(dx_m, dy_m))
+        if not np.isfinite(elev).any():
+            return None
         if blur_sigma > 0:
             elev = _gaussian_blur(elev, sigma=blur_sigma)
         slope = _compute_slope(elev, dy_m, dx_m)

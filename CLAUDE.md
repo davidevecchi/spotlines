@@ -34,9 +34,15 @@ GET /spots (bbox + filters)
 ### 2. Core Modules
 
 **`overpass.py`**
-- Fetches OSM data via Overpass API with 5-min caching
+- `fetch_osm()`: local Geofabrik extract when the bbox is inside it (`osm_local.py`), else Overpass cached as 0.025° tiles on disk (30 days)
 - Parses response into anchors (nodes with `anchor: true` flag) and generic elements
 - Anchors: extracted from OSM features (trees, poles, etc.) tagged in `feature_map.json`
+
+**`osm_local.py`**
+- Geofabrik extract (default `europe/italy/nord-est`, override `SPOTLINES_OSM_REGION`) filtered once to `feature_map` keys
+- Per request: `osmium extract -s smart` from lazily cut 0.5° cells → OPL → Overpass-shaped JSON
+- Long aerialway/power spans added by geometry (osmium selects ways by nodes, Overpass by geometry)
+- Each osmium call peaks ~3.5 GB RAM; cell cuts are serialized
 
 **`geometry.py`**
 - `build_all_indices()`: Single-pass classification of all OSM elements → `OsmRecord` dataclass
@@ -86,6 +92,9 @@ GET /spots (bbox + filters)
 ```bash
 # Install dependencies
 pip install -r requirements.txt
+
+# Local OSM (needs `osmium-tool`; ~630 MB download, ~15 s filter). Rerun with --refresh to update.
+python -m backend.osm_local
 
 # Optional: DEM cache (set environment variable)
 export SPOTLINES_CACHE_DIR=/path/to/cache  # default: /media/twister/WD/.cache/spotfinder
@@ -155,7 +164,7 @@ Precedence (stop at first match):
 - Progress streamed as `text/event-stream` JSON events
 
 ### Caching
-- **OSM:** 5 min per bbox
+- **OSM:** local extract (refresh manually) or Overpass tiles on disk, 30 days; merged result 5 min in memory
 - **Landuse raster:** 5 min per bbox
 - **DEM tiles:** Indefinite (local disk)
 - All caches are thread-safe (use locks)

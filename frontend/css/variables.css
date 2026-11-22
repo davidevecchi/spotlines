@@ -1,0 +1,29 @@
+:root {
+  /* Brand */
+  --color-primary:        #b45309;
+  --color-primary-dark:   #92400e;
+  --color-primary-amber:  #fef3c7;
+
+  /* Surface */
+  --surface-bg:           rgba(250, 246, 240, 0.93);
+  --surface-bg-solid:     rgba(250, 246, 240, 0.97);
+  --surface-border:       rgba(180, 140, 90, 0.22);
+  --surface-border-light: rgba(180, 140, 90, 0.18);
+  --surface-border-input: rgba(180, 140, 90, 0.32);
+
+  /* Text */
+  --text-base:   #292524;
+  --text-muted:  #78716c;
+  --text-subtle: #a8a29e;
+  --text-med:    #44403c;
+  --text-dark:   #1c1917;
+  --text-label:  #57534e;
+
+  /* Shadows */
+  --shadow-island: 0 4px 20px rgba(0, 0, 0, 0.14);
+
+  /* Border radius */
+  --radius-panel: 10px;
+  --radius-btn:   6px;
+  --radius-input: 5px;
+}
